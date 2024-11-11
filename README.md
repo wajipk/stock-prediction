@@ -16,12 +16,12 @@ scripts
 2. Define model
 3. evalution (back data testing)
 
-loaddata.py
- - Class - Stock Data
- - Method Load Stcok Data
- - Paramter Start Date
- - By default 5 year
- - Save Clean Data
+- loaddata.py
+   - Class - Stock Data
+     - Method Load Stcok Data
+       - Paramter Start Date
+       - By default 5 year
+       - Save Clean Data
 
-model.py
+- model.py
   - Model Architecture

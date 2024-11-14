@@ -1,19 +1,19 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
+from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 import os
 import logging
 from typing import Optional, Tuple
 
 
 class StockData:
-    def __init__(self, data_path: str = 'data/'):
+    def __init__(self, data_path: str = 'stock-prediction/'):
         self.data_path = data_path
         self.scaler = MinMaxScaler()
-        self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-        self.csv_path = 'C:/Users/DELL/Downloads/StockPrediction/trade_data.csv'
-        self.incremental_csv_path = 'C:/Users/DELL/Downloads/StockPrediction/incremental_data.csv'
+        self.label_encoder = LabelEncoder()
+        self.data_file = os.path.join(data_path, 'trade_data.csv')
+        self.processed_file = os.path.join(data_path, 'trade_preprocessed_data.csv')
 
         # Setup logging
         logging.basicConfig(
@@ -67,69 +67,81 @@ class StockData:
             self.logger.error(f"Error in calculate_technical_indicators: {str(e)}")
             raise
 
-    def load_stock_data(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Tuple[pd.DataFrame, list]:
+    def create_multistep_labels(self, df: pd.DataFrame, periods: dict) -> pd.DataFrame:
         try:
+            # Generate target labels for each period within the same symbol
+            for period, days in periods.items():
+                df[f'target_{period}'] = (
+                    df.groupby('symbol')['close']
+                    .shift(-days)  # Shift close prices upward for each symbol group
+                )
+
+            # Drop rows with NaN values in any target column
+            df.dropna(inplace=True)
+
+            return df
+
+        except Exception as e:
+            self.logger.error(f"Error in create_multistep_labels: {str(e)}")
+            raise
+
+    def load_stock_data(self, start_date: Optional[str] = None, end_date: Optional[str] = None,
+                        use_incremental: bool = False) -> Tuple[pd.DataFrame, list]:
+        try:
+            if not os.path.exists(self.data_file):
+                raise FileNotFoundError(f"{self.data_file} does not exist.")
+
             if start_date is None:
                 start_date = (datetime.now() - timedelta(days=5 * 365)).strftime('%Y-%m-%d')
             if end_date is None:
                 end_date = datetime.now().strftime('%Y-%m-%d')
 
-            df = pd.read_csv(self.csv_path)
+            df = pd.read_csv(self.data_file)
+            if use_incremental:
+                self.logger.info("Using incremental data.")
+            else:
+                self.logger.info("Using full dataset.")
+                # If not incremental, consider only the main dataset
+                df = df[df['is_incremental'] == 0] if 'is_incremental' in df.columns else df
+
             df['date'] = pd.to_datetime(df['date'])
             df = df[(df['date'] >= start_date) & (df['date'] <= end_date)]
             df = self.clean_data(df)
             df = self.calculate_technical_indicators(df)
 
-            # One-hot encode 'symbol' and 'name'
-            encoded = self.encoder.fit_transform(df[['symbol', 'name']])
-            encoded_cols = self.encoder.get_feature_names_out(['symbol', 'name'])
-            encoded_df = pd.DataFrame(encoded, columns=encoded_cols, index=df.index)
-            df = pd.concat([df, encoded_df], axis=1)
+            # Define prediction periods
+            periods = {
+                **{f'day{i}': i for i in range(1, 8)},  # Day 1 to 7
+                **{f'week{i}': i * 7 for i in range(1, 5)},  # Week 1 to 4
+                **{f'month{i}': i * 30 for i in range(1, 13)},  # Month 1 to 12
+            }
+            df = self.create_multistep_labels(df, periods)
+
+            # Label encode 'symbol' and scale it
+            df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
+            df['symbol_encoded'] = self.scaler.fit_transform(df[['symbol_encoded']])
+
+            # Drop unnecessary columns
             df.drop(columns=['symbol', 'name'], inplace=True)
 
-            features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open'] + list(encoded_cols)
+            features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']
             df[features] = self.scaler.fit_transform(df[features])
 
-            processed_file = f'{self.data_path}/processed_stock_data.csv'
-            df.to_csv(processed_file, index=False)
-            self.logger.info("Successfully loaded and processed stock data.")
+            # Save processed data as `trade_preprocessed.csv`
+            df.to_csv(self.processed_file, index=False)
+            self.logger.info(f"Successfully processed and saved data to {self.processed_file}.")
             return df, features
 
         except Exception as e:
             self.logger.error(f"Error in load_stock_data: {str(e)}")
             raise
 
-    def get_incremental_data(self) -> pd.DataFrame:
-        try:
-            df = pd.read_csv(self.incremental_csv_path)
-            df['date'] = pd.to_datetime(df['date'])
-            if len(df) == 0:
-                self.logger.info("No new incremental data available.")
-                return None
-            df = self.clean_data(df)
-            df = self.calculate_technical_indicators(df)
-
-            # One-hot encode 'symbol' and 'name'
-            encoded = self.encoder.transform(df[['symbol', 'name']])
-            encoded_cols = self.encoder.get_feature_names_out(['symbol', 'name'])
-            encoded_df = pd.DataFrame(encoded, columns=encoded_cols, index=df.index)
-            df = pd.concat([df, encoded_df], axis=1)
-            df.drop(columns=['symbol', 'name'], inplace=True)
-
-            incremental_file = f'{self.data_path}/incremental_processed_data.csv'
-            df.to_csv(incremental_file, index=False)
-            self.logger.info("Successfully loaded incremental data.")
-            return df
-
-        except Exception as e:
-            self.logger.error(f"Error in get_incremental_data: {str(e)}")
-            raise
-
 
 if __name__ == "__main__":
     stock_data = StockData()
     try:
-        df, features = stock_data.load_stock_data()
+        # Pass `use_incremental=True` for incremental data
+        df, features = stock_data.load_stock_data(use_incremental=False)
         print("Data loaded successfully.")
     except Exception as e:
         print(f"Error: {str(e)}")

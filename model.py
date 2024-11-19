@@ -5,7 +5,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 
 class StockPredictionModel:
-    def __init__(self, seq_length, n_features, n_outputs):
+    def __init__(self, seq_length=365, n_features=None, n_outputs=None):
         self.seq_length = seq_length
         self.n_features = n_features
         self.n_outputs = n_outputs
@@ -13,11 +13,23 @@ class StockPredictionModel:
 
     def _build_model(self):
         model = Sequential([
-            LSTM(100, return_sequences=True, input_shape=(self.seq_length, self.n_features)),
+            # First LSTM layer for long sequence processing
+            LSTM(128, return_sequences=True, input_shape=(self.seq_length, self.n_features)),
+            Dropout(0.3),  # Dropout to prevent overfitting
+
+            # Second LSTM layer
+            LSTM(64, return_sequences=True),
+            Dropout(0.3),
+
+            # Third LSTM layer
+            LSTM(32, return_sequences=False),
+            Dropout(0.3),
+
+            # Dense layer for intermediate representation
+            Dense(64, activation='relu'),
             Dropout(0.2),
-            LSTM(50, return_sequences=False),
-            Dropout(0.2),
-            Dense(25),
+
+            # Final output layer for multi-step predictions
             Dense(self.n_outputs)
         ])
 

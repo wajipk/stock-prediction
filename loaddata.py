@@ -5,6 +5,7 @@ from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 import os
 import logging
 from typing import Optional, Tuple
+import joblib
 
 
 class StockData:
@@ -14,6 +15,11 @@ class StockData:
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(data_path, 'trade_data.csv')
         self.processed_file = os.path.join(data_path, 'trade_preprocessed_data.csv')
+
+        # File paths for saving encoders and scalers in the stock-prediction directory
+        self.encoder_file = os.path.join(data_path, 'label_encoder.pkl')
+        self.scaler_file = os.path.join(data_path, 'scaler.pkl')
+        self.model_file = os.path.join(data_path, 'stock_model.h5')  # For saving the trained model
 
         # Setup logging
         logging.basicConfig(
@@ -40,6 +46,7 @@ class StockData:
                 Q3 = df[col].quantile(0.75)
                 IQR = Q3 - Q1
                 df = df[~((df[col] < (Q1 - 1.5 * IQR)) | (df[col] > (Q3 + 1.5 * IQR)))]
+
             return df
 
         except Exception as e:
@@ -109,17 +116,17 @@ class StockData:
             df = self.clean_data(df)
             df = self.calculate_technical_indicators(df)
 
-            # Define prediction periods
-            periods = {
-                **{f'day{i}': i for i in range(1, 8)},  # Day 1 to 7
-                **{f'week{i}': i * 7 for i in range(1, 5)},  # Week 1 to 4
-                **{f'month{i}': i * 30 for i in range(1, 13)},  # Month 1 to 12
-            }
+            # Define prediction periods for day 1 to day 30
+            periods = {f'day{i}': i for i in range(1, 31)}  # Day 1 to 30
             df = self.create_multistep_labels(df, periods)
 
             # Label encode 'symbol' and scale it
             df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
             df['symbol_encoded'] = self.scaler.fit_transform(df[['symbol_encoded']])
+
+            # Save the LabelEncoder and Scaler for future use
+            joblib.dump(self.label_encoder, self.encoder_file)
+            joblib.dump(self.scaler, self.scaler_file)
 
             # Drop unnecessary columns
             df.drop(columns=['symbol', 'name'], inplace=True)
@@ -136,12 +143,9 @@ class StockData:
             self.logger.error(f"Error in load_stock_data: {str(e)}")
             raise
 
-
-if __name__ == "__main__":
-    stock_data = StockData()
-    try:
-        # Pass `use_incremental=True` for incremental data
-        df, features = stock_data.load_stock_data(use_incremental=False)
-        print("Data loaded successfully.")
-    except Exception as e:
-        print(f"Error: {str(e)}")
+    def load_encoder_and_scaler(self):
+        if os.path.exists(self.encoder_file) and os.path.exists(self.scaler_file):
+            self.label_encoder = joblib.load(self.encoder_file)
+            self.scaler = joblib.load(self.scaler_file)
+        else:
+            raise FileNotFoundError("LabelEncoder or MinMaxScaler not found. Ensure preprocessing has been done.")

@@ -25,3 +25,11 @@ scripts
 
 - model.py
   - Model Architecture
+
+### Required Libraries
+
+- pandas
+- numpy
+- scikit-learn
+- tensorflow
+- matplotlib

@@ -19,7 +19,7 @@ class ModelTrainer:
                 y[period].append(data[f'target_{period}'].values[i + self.seq_length - 1])
         return np.array(X), {period: np.array(y[period]) for period in periods}
 
-    def train(self, model_path='models/stock_model.h5'):
+    def train(self, model_path='stock-prediction/stock_model.h5'):
         try:
             # Load preprocessed data
             stock_data = StockData()
@@ -30,17 +30,7 @@ class ModelTrainer:
             ]
 
             # Define prediction periods
-            periods = {
-                'day1': 1,
-                'day2': 2,
-                'day3': 3,
-                'week1': 7,
-                'month1': 30,
-                'month2': 60,
-                'quarterly': 90,
-                'halfyear': 180,
-                'year': 365,
-            }
+            periods = {f'day{i}': i for i in range(1, 31)}  # Day 1 to 30
 
             # Prepare data sequences
             X, y = self.prepare_sequences(data, features, periods)
@@ -60,7 +50,7 @@ class ModelTrainer:
                 batch_size=self.batch_size,
                 epochs=self.epochs,
                 validation_data=(X_test, [y_test[period] for period in periods]),
-                callbacks=[
+                callbacks=[ 
                     tf.keras.callbacks.EarlyStopping(patience=10),
                     tf.keras.callbacks.ModelCheckpoint(model_path, save_best_only=True)
                 ]

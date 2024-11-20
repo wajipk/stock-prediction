@@ -1,6 +1,6 @@
 import tensorflow as tf
-from tensorflow.python.keras.models import Sequential
-from tensorflow.python.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 
 class StockPredictionModel:
@@ -12,23 +12,19 @@ class StockPredictionModel:
 
     def _build_model(self):
         model = Sequential([
-            # First LSTM layer for long sequence processing
             LSTM(128, return_sequences=True, input_shape=(self.seq_length, self.n_features)),
-            Dropout(0.3),  # Dropout to prevent overfitting
+            Dropout(0.3),
 
-            # Second LSTM layer
             LSTM(64, return_sequences=True),
             Dropout(0.3),
 
-            # Third LSTM layer
             LSTM(32, return_sequences=False),
             Dropout(0.3),
 
-            # Dense layer for intermediate representation
             Dense(64, activation='relu'),
             Dropout(0.2),
 
-            # Final output layer for multi-step predictions
+            # Output layer with 30 units for multi-output prediction (one for each day)
             Dense(self.n_outputs)
         ])
 

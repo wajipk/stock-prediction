@@ -9,7 +9,7 @@ import joblib
 
 
 class StockData:
-    def __init__(self, data_path: str = 'stock-prediction/'):
+    def __init__(self, data_path: str = 'C:/Users/DELL/Downloads/stock-prediction/'):
         self.data_path = data_path
         self.scaler = MinMaxScaler()
         self.label_encoder = LabelEncoder()

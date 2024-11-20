@@ -1,9 +1,3 @@
-# Parameter symbol for prediction
-# Parameter preprocessing for cleaning data by default 0
-# Training 1/0 by default 0
-# Return data in json form
-# Parameter plot graph by default 0 for plotting prediction price and previous price 
-
 import argparse
 from training import ModelTrainer
 from prediction import StockPredictor

@@ -33,3 +33,8 @@ scripts
 - scikit-learn
 - tensorflow
 - matplotlib
+
+Improvements
+- [] Data File should be passed from index.py to data preprocessing
+
+

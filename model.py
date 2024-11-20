@@ -11,6 +11,7 @@ class StockPredictionModel:
         self.model = self._build_model()
 
     def _build_model(self):
+        print("Building the model...")
         model = Sequential([
             LSTM(128, return_sequences=True, input_shape=(self.seq_length, self.n_features)),
             Dropout(0.3),
@@ -24,16 +25,20 @@ class StockPredictionModel:
             Dense(64, activation='relu'),
             Dropout(0.2),
 
-            # Output layer with 30 units for multi-output prediction (one for each day)
-            Dense(self.n_outputs)
+            Dense(self.n_outputs)  # Output layer for multi-output prediction
         ])
 
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+        print("Model built successfully.")
         return model
 
     def save_model(self, path):
         self.model.save(path)
+        print(f"Model saved to {path}")
 
     @classmethod
     def load_model(cls, path):
-        return tf.keras.models.load_model(path)
+        print(f"Loading model from {path}...")
+        model = tf.keras.models.load_model(path)
+        print("Model loaded successfully.")
+        return model

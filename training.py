@@ -14,21 +14,39 @@ class ModelTrainer:
 
     def prepare_sequences(self, data, features, periods):
         X_batch, y_batch = [], {period: [] for period in periods}
-        print("Preparing sequences for training...")
-
-        for i in range(len(data) - self.seq_length):
-            X_batch.append(data[features].values[i:i + self.seq_length])
-            for period in periods:
-                y_batch[period].append(data[f'target_{period}'].values[i + self.seq_length - 1])
-
-            if len(X_batch) == self.batch_size:
-                y_output = np.array([y_batch[period] for period in periods]).T
-                yield np.array(X_batch), y_output
+    
+        try:
+            print("Preparing sequences for training...")
+        
+            # Ensure we have enough data for at least one full batch
+            if len(data) < self.seq_length + self.batch_size:
+                raise ValueError("Insufficient data for training. Data length must be greater than sequence length + batch size.")
+        
+            # Add infinite iteration to the data
+            total_sequences = len(data) - self.seq_length
+            current_index = 0
+        
+            while current_index < total_sequences:
+                # Reset batch containers
                 X_batch, y_batch = [], {period: [] for period in periods}
-
-        if len(X_batch) > 0:
-            y_output = np.array([y_batch[period] for period in periods]).T
-            yield np.array(X_batch), y_output
+            
+                # Fill up a batch
+                while len(X_batch) < self.batch_size and current_index < total_sequences:
+                    X_batch.append(data[features].values[current_index:current_index + self.seq_length])
+                
+                    for period in periods:
+                        y_batch[period].append(data[f'target_{period}'].values[current_index + self.seq_length - 1])
+                
+                    current_index += 1
+            
+                # Yield the batch if it's not empty
+                if X_batch:
+                    y_output = np.array([y_batch[period] for period in periods]).T
+                    yield np.array(X_batch), y_output
+    
+        except Exception as e:
+            print(f"Error in sequence generation: {e}")
+            raise
 
     def train(self, model_path='./stock_model.keras'):
         try:
@@ -59,10 +77,13 @@ class ModelTrainer:
             model = StockPredictionModel(self.seq_length, len(features), len(periods))
             print("Model initialized successfully.")
 
+            # Use a list comprehension to pre-process the data into sequences
             sequence_generator = self.prepare_sequences(data, features, periods)
 
-            steps_per_epoch = max(1, len(data) // self.batch_size)
-            validation_steps = max(1, len(data) // self.batch_size)
+            # Calculate steps dynamically based on the actual data
+            total_sequences = len(data) - self.seq_length
+            steps_per_epoch = max(1, total_sequences // self.batch_size)
+            validation_steps = max(1, total_sequences // (self.batch_size * 2))
 
             print("Starting model training...")
             history = model.model.fit(

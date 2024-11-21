@@ -13,48 +13,53 @@ class ModelTrainer:
         self.epochs = epochs
 
     def prepare_sequences(self, data, features, periods):
-        X_batch, y_batch = [], {period: [] for period in periods}
-    
         try:
             print("Preparing sequences for training...")
         
-            # Ensure we have enough data for at least one full batch
-            if len(data) < self.seq_length + self.batch_size:
-                raise ValueError("Insufficient data for training. Data length must be greater than sequence length + batch size.")
-        
-            # Add infinite iteration to the data
-            total_sequences = len(data) - self.seq_length
-            current_index = 0
-        
-            while current_index < total_sequences:
-                # Reset batch containers
-                X_batch, y_batch = [], {period: [] for period in periods}
+            # Ensure we have enough data
+            if len(data) < self.seq_length + max(periods.values()):
+                raise ValueError("Insufficient data for training. Data length is too short for the specified sequence length and prediction periods.")
+
+            # Prepare input features and target values
+            X, y = [], []
+            period_keys = list(periods.keys())
+
+            for i in range(len(data) - self.seq_length - max(periods.values()) + 1):
+                # Extract input sequence
+                input_seq = data[features].values[i:i + self.seq_length]
             
-                # Fill up a batch
-                while len(X_batch) < self.batch_size and current_index < total_sequences:
-                    X_batch.append(data[features].values[current_index:current_index + self.seq_length])
-                
-                    for period in periods:
-                        y_batch[period].append(data[f'target_{period}'].values[current_index + self.seq_length - 1])
-                
-                    current_index += 1
+                # Extract target values for different periods
+                target_values = [data[f'target_{period}'].values[i + self.seq_length - 1] for period in period_keys]
             
-                # Yield the batch if it's not empty
-                if X_batch:
-                    y_output = np.array([y_batch[period] for period in periods]).T
-                    yield np.array(X_batch), y_output
-    
+                X.append(input_seq)
+                y.append(target_values)
+
+            # Convert to numpy arrays
+            X = np.array(X)
+            y = np.array(y)
+
+            # Create tf.data.Dataset
+            dataset = tf.data.Dataset.from_tensor_slices((X, y))
+            dataset = dataset.shuffle(buffer_size=len(X))
+            dataset = dataset.batch(self.batch_size)
+            dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
+            print(f"Prepared {len(X)} sequences for training")
+            return dataset
+
         except Exception as e:
-            print(f"Error in sequence generation: {e}")
+            print(f"Error in sequence preparation: {e}")
             raise
 
     def train(self, model_path='./stock_model.keras'):
         try:
             print("Initializing training process...")
 
-            policy = mixed_precision.Policy('mixed_float16')  # Use 16-bit precision
+            # Enable mixed precision training
+            policy = mixed_precision.Policy('mixed_float16')
             mixed_precision.set_global_policy(policy)
 
+            # GPU configuration
             physical_devices = tf.config.experimental.list_physical_devices('GPU')
             if physical_devices:
                 tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -62,6 +67,7 @@ class ModelTrainer:
             else:
                 print("No GPU detected, using CPU for training.")
 
+            # Load and prepare data
             stock_data = StockData()
             print("Loading preprocessed data...")
             data = pd.read_csv(stock_data.processed_file)
@@ -73,31 +79,59 @@ class ModelTrainer:
             ]
             periods = {f'day{i}': i for i in range(1, 31)}
 
+            # Prepare dataset
+            dataset = self.prepare_sequences(data, features, periods)
+
+            # Split dataset into train and validation
+            dataset_size = len(list(dataset))
+            train_size = int(0.8 * dataset_size)
+        
+            train_dataset = dataset.take(train_size)
+            val_dataset = dataset.skip(train_size)
+
+            # Initialize and compile model
             print("Initializing the stock prediction model...")
             model = StockPredictionModel(self.seq_length, len(features), len(periods))
             print("Model initialized successfully.")
 
-            # Use a list comprehension to pre-process the data into sequences
-            sequence_generator = self.prepare_sequences(data, features, periods)
+            # Learning rate scheduling
+            initial_learning_rate = 0.001
+            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+                initial_learning_rate,
+                decay_steps=100,
+                decay_rate=0.9,
+                staircase=True
+            )
+            optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+            model.model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
 
-            # Calculate steps dynamically based on the actual data
-            total_sequences = len(data) - self.seq_length
-            steps_per_epoch = max(1, total_sequences // self.batch_size)
-            validation_steps = max(1, total_sequences // (self.batch_size * 2))
-
+            # Model training
             print("Starting model training...")
             history = model.model.fit(
-                sequence_generator,
-                steps_per_epoch=steps_per_epoch,
+                train_dataset,
+                validation_data=val_dataset,
                 epochs=self.epochs,
-                validation_data=sequence_generator,
-                validation_steps=validation_steps,
                 callbacks=[
-                    tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True),
-                    tf.keras.callbacks.ModelCheckpoint(model_path, save_best_only=True)
+                    tf.keras.callbacks.EarlyStopping(
+                        patience=10, 
+                        restore_best_weights=True, 
+                        monitor='val_loss'
+                    ),
+                    tf.keras.callbacks.ModelCheckpoint(
+                        model_path, 
+                        save_best_only=True, 
+                        monitor='val_loss'
+                    ),
+                    tf.keras.callbacks.ReduceLROnPlateau(
+                        monitor='val_loss', 
+                        factor=0.5, 
+                        patience=5, 
+                        min_lr=1e-6
+                    )
                 ]
             )
 
+            # Save the model
             print("Saving the trained model...")
             model.save_model(model_path)
             print("Model trained and saved successfully!")

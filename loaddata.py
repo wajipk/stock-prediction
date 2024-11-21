@@ -31,6 +31,10 @@ class StockData:
             df['open'] = df['close'].shift(1).fillna(df['close'])
             df.dropna(inplace=True)
 
+            # Drop unused column
+            if 'name' in df.columns:
+                df.drop(columns=['name'], inplace=True)
+
             for col in ['close', 'volume']:
                 Q1 = df[col].quantile(0.25)
                 Q3 = df[col].quantile(0.75)
@@ -87,14 +91,18 @@ class StockData:
             if not os.path.exists(self.data_file):
                 raise FileNotFoundError(f"{self.data_file} not found.")
 
-            df = pd.read_csv(self.data_file)
+            df = pd.read_csv(self.data_file, low_memory=False)
             df = self.clean_data(df)
             df = self.calculate_technical_indicators(df)
 
             periods = {f'day{i}': i for i in range(1, 31)}
             df = self.create_multistep_labels(df, periods)
 
+            # Encode and drop 'symbol' column
             df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
+            df.drop(columns=['symbol'], inplace=True)
+
+            # Features
             features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']
 
             # Scale features and target labels
@@ -102,6 +110,7 @@ class StockData:
                 df[features + [f'target_day{i}' for i in range(1, 31)]]
             )
 
+            # Save encoders and scalers
             joblib.dump(self.label_encoder, self.encoder_file)
             joblib.dump(self.scaler, self.scaler_file)
 

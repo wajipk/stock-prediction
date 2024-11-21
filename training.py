@@ -91,6 +91,8 @@ class ModelTrainer:
             history = model.model.fit(
                 train_dataset,
                 validation_data=val_dataset,
+                steps_per_epoch=len(train_data) // self.batch_size,
+                validation_steps=len(val_data) // self.batch_size,
                 epochs=self.epochs,
                 callbacks=callbacks
             )

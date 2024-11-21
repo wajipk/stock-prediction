@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization
 
 
 class StockPredictionModel:
@@ -13,16 +13,22 @@ class StockPredictionModel:
     def _build_model(self):
         print("Building the model...")
         model = Sequential([
-            LSTM(128, return_sequences=True, input_shape=(self.seq_length, self.n_features)),
+            Input(shape=(self.seq_length, self.n_features)),
+
+            LSTM(128, return_sequences=True),
+            BatchNormalization(),
             Dropout(0.3),
 
             LSTM(64, return_sequences=True),
+            BatchNormalization(),
             Dropout(0.3),
 
             LSTM(32, return_sequences=False),
+            BatchNormalization(),
             Dropout(0.3),
 
             Dense(64, activation='relu'),
+            BatchNormalization(),
             Dropout(0.2),
 
             Dense(self.n_outputs)  # Output layer for multi-output prediction

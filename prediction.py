@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta
-import numpy as np
 import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
 from model import StockPredictionModel
 from loaddata import StockData
 
@@ -30,7 +30,7 @@ class StockPredictor:
             if data.empty:
                 raise ValueError(f"No data available for symbol: {symbol}")
 
-            seq_length = len(features)
+            seq_length = self.model.input_shape[1]
             X = data[features].values[-seq_length:].reshape(1, seq_length, -1)
 
             periods = {f'day{i}': i for i in range(1, 31)}

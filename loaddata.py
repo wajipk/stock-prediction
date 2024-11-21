@@ -1,27 +1,22 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 import os
 import logging
-from typing import Optional, Tuple
 import joblib
 
 
 class StockData:
     def __init__(self, data_path: str = './'):
-        # Set up the file paths
+        # File paths
         self.data_path = os.path.abspath(data_path)
-
         self.scaler = MinMaxScaler()
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(self.data_path, 'trade_data.csv')
         self.processed_file = os.path.join(self.data_path, 'trade_preprocessed_data.csv')
-
-        # Save paths for encoder, scaler, and model
         self.encoder_file = os.path.join(self.data_path, 'label_encoder.pkl')
         self.scaler_file = os.path.join(self.data_path, 'scaler.pkl')
-        self.model_file = os.path.join(self.data_path, 'stock_model.keras')
 
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
@@ -40,7 +35,7 @@ class StockData:
                 Q1 = df[col].quantile(0.25)
                 Q3 = df[col].quantile(0.75)
                 IQR = Q3 - Q1
-                df = df[~((df[col] < (Q1 - 1.5 * IQR)) | (df[col] > (Q3 + 1.5 * IQR)))] 
+                df = df[~((df[col] < (Q1 - 1.5 * IQR)) | (df[col] > (Q3 + 1.5 * IQR)))]
 
             self.logger.info("Data cleaning completed.")
             return df
@@ -80,30 +75,19 @@ class StockData:
                 df[f'target_{period}'] = df.groupby('symbol')['close'].shift(-days)
 
             df.dropna(inplace=True)
-            self.logger.info("Multi-step target labels created.")
             return df
 
         except Exception as e:
             self.logger.error(f"Error in create_multistep_labels: {e}")
             raise
 
-    def load_stock_data(self, start_date: Optional[str] = None, end_date: Optional[str] = None,
-                        use_incremental: bool = False) -> Tuple[pd.DataFrame, list]:
+    def load_stock_data(self, use_incremental=False) -> pd.DataFrame:
         try:
-            self.logger.info("Loading raw stock data...")
+            self.logger.info("Loading stock data...")
             if not os.path.exists(self.data_file):
-                raise FileNotFoundError(f"{self.data_file} does not exist.")
+                raise FileNotFoundError(f"{self.data_file} not found.")
 
             df = pd.read_csv(self.data_file)
-            self.logger.info(f"Raw data loaded with {len(df)} records.")
-
-            if start_date:
-                start_date = pd.to_datetime(start_date)
-                df = df[df['date'] >= start_date]
-            if end_date:
-                end_date = pd.to_datetime(end_date)
-                df = df[df['date'] <= end_date]
-
             df = self.clean_data(df)
             df = self.calculate_technical_indicators(df)
 
@@ -111,16 +95,18 @@ class StockData:
             df = self.create_multistep_labels(df, periods)
 
             df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
-            df[['symbol_encoded']] = self.scaler.fit_transform(df[['symbol_encoded']])
+            features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']
+
+            # Scale features and target labels
+            df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
+                df[features + [f'target_day{i}' for i in range(1, 31)]]
+            )
 
             joblib.dump(self.label_encoder, self.encoder_file)
             joblib.dump(self.scaler, self.scaler_file)
 
-            features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']
-            df[features] = self.scaler.fit_transform(df[features])
-
             df.to_csv(self.processed_file, index=False)
-            self.logger.info(f"Preprocessed data saved to {self.processed_file}.")
+            self.logger.info(f"Processed data saved at {self.processed_file}.")
             return df, features
 
         except Exception as e:
@@ -134,7 +120,9 @@ class StockData:
                 self.scaler = joblib.load(self.scaler_file)
                 self.logger.info("Encoders and scalers loaded successfully.")
             else:
-                raise FileNotFoundError("LabelEncoder or MinMaxScaler not found.")
+                self.logger.warning("Encoder or scaler file not found. Initializing new instances.")
+                self.label_encoder = LabelEncoder()
+                self.scaler = MinMaxScaler()
         except Exception as e:
             self.logger.error(f"Error loading encoder and scaler: {e}")
             raise

@@ -98,9 +98,9 @@ class StockData:
             periods = {f'day{i}': i for i in range(1, 31)}
             df = self.create_multistep_labels(df, periods)
 
-            # Encode and drop 'symbol' column
+            # Encode and drop 'symbol','name' column
             df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
-            df.drop(columns=['symbol'], inplace=True)
+            df.drop(columns=['symbol','name'], inplace=True)
 
             # Features
             features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']

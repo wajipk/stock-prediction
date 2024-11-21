@@ -35,11 +35,10 @@ scripts
 
 ### Required Libraries
 
-- pandas
-- numpy
-- scikit-learn
-- tensorflow
-- matplotlib
+pip install pandas numpy scikit-learn matplotlib
+pip install tensorflow==2.10.0
+
+python index.py --train=1 --preprocess=1 --symbol=MARI --plot=1
 
 Improvements
 - [] Data File should be passed from index.py to data preprocessing

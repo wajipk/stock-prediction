@@ -69,15 +69,9 @@ class ModelTrainer:
             print("Initializing stock prediction model...")
             model = StockPredictionModel(self.seq_length, len(features), len(periods))
 
-            # Learning rate scheduler
-            learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=0.001,
-                decay_steps=500,
-                decay_rate=0.95
-            )
-            optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+            optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
 
-            model.model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
+            model.model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['mae'])
 
             # Callbacks
             callbacks = [

@@ -73,12 +73,6 @@ class ModelTrainer:
 
             model.model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['mae'])
 
-            # Callbacks
-            callbacks = [
-                tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
-                tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6),
-                tf.keras.callbacks.ModelCheckpoint(model_path, save_best_only=True)
-            ]
 
             # Training
             print("Starting model training...")
@@ -88,7 +82,6 @@ class ModelTrainer:
                 steps_per_epoch=len(train_data) // self.batch_size,
                 validation_steps=len(val_data) // self.batch_size,
                 epochs=self.epochs,
-                callbacks=callbacks
             )
 
             model.save_model(model_path)

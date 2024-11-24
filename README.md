@@ -43,4 +43,34 @@ python index.py --train=1 --preprocess=1 --symbol=MARI --plot=1
 Improvements
 - [] Data File should be passed from index.py to data preprocessing
 
+- Dask (https://www.dask.org/) allows for parallel and out-of-core computation, handling datasets larger than available RAM.  I will also add logging statements to track progress. Processing is also sequential; each step operates on the entire DataFrame.  Parallel processing or chunking could significantly improve performance.
+
+- Attention Mechanism: Incorporate an attention mechanism. Attention allows the model to focus on the most relevant parts of the input sequence, improving performance, especially for long sequences.
+
+Regularization: While dropout is used, consider adding L1 or L2 regularization to the dense layers to further prevent overfitting.
+
+Bollinger Bands: Add Bollinger Bands to measure price volatility and potential reversals.
+
+Relative Strength Index (RSI) variations: Experiment with different RSI periods (e.g., 10-period, 20-period RSI) or variations of the RSI calculation.
+
+Moving Average Convergence Divergence (MACD) variations: Explore different MACD settings (e.g., different fast and slow EMA periods) or use the MACD histogram as a separate feature.
+
+Average True Range (ATR): Incorporate ATR to measure market volatility.
+
+Volume-based indicators: Add volume-weighted moving averages or other volume-based indicators to capture the relationship between price and volume.
+
+
+
+Hyperparameter Tuning: The hyperparameters (seq_length, batch_size, epochs) are hardcoded.  A more robust approach would involve hyperparameter tuning using techniques like grid search, random search, or Bayesian optimization. This would help find optimal settings for the model.
+
+Early Stopping: The training runs for a fixed number of epochs.  Adding early stopping based on a validation metric (e.g., MAE or MSE) would prevent overfitting and improve generalization.
+
+Learning Rate Scheduling:  Using a constant learning rate throughout training might not be optimal.  Consider using a learning rate scheduler (e.g., ReduceLROnPlateau) to adjust the learning rate dynamically based on the training progress.
+
+Data Augmentation:  To improve model robustness and generalization, consider data augmentation techniques.  This could involve adding noise to the input data or creating synthetic data points.
+
+Different Model Architectures: Explore alternative model architectures, such as different types of recurrent neural networks (RNNs) (e.g., GRU) or convolutional neural networks (CNNs) combined with RNNs.  These might capture different patterns in the data and lead to better performance.
+
+ Evaluation Metrics: While MAE is used, consider adding other relevant evaluation metrics like RMSE (Root Mean Squared Error) and R-squared to get a more comprehensive evaluation of the model's performance.
+
 

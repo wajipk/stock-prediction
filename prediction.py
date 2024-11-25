@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from model import StockPredictionModel
 from loaddata import StockData
+import os
 from pandas.tseries.offsets import BDay
 
 
@@ -17,101 +18,100 @@ class StockPredictor:
         """Get the next business day(s) after the given date."""
         return date + BDay(days)
 
+    def retrieve_scaled_symbol(self, symbol):
+        """
+        Retrieve the encoded value of a symbol and its corresponding scaled value using the complete mapping file.
+        """
+        try:
+            # Load the complete mapping file
+            mapping_file = os.path.join(self.stock_data.data_path, 'symbol_mapping_complete.csv')
+            symbol_mapping = pd.read_csv(mapping_file)
+
+            # Get the row corresponding to the symbol
+            matching_row = symbol_mapping[symbol_mapping['symbol'] == symbol]
+            if matching_row.empty:
+                raise ValueError(f"Symbol '{symbol}' not found in the mapping file.")
+
+            # Retrieve encoded and scaled values
+            encoded_symbol = matching_row['symbol_encoded_unscaled'].iloc[0]
+            scaled_value = matching_row['symbol_encoded_scaled_y'].iloc[0]
+
+            print(f"Encoded value for '{symbol}': {encoded_symbol}")
+            print(f"MinMax-scaled value for '{symbol}': {scaled_value}")
+
+            return scaled_value
+
+        except FileNotFoundError:
+            print("Error: Mapping file not found. Ensure preprocessing has been run.")
+            raise
+        except Exception as e:
+            print(f"Error retrieving scaled symbol for '{symbol}': {e}")
+            raise
+
     def predict_all_periods(self, symbol: str):
         try:
             print(f"Generating predictions for symbol: {symbol}...")
+
             # Read the processed data
             df = pd.read_csv(self.stock_data.processed_file)
             df['date'] = pd.to_datetime(df['date'])
-            
+
+            # Define feature columns
             features = [
                 'close', 'volume', 'volatility', 'ma_20', 'ma_50',
                 'rsi', 'macd', 'open', 'symbol_encoded'
             ]
 
-            # Load the original data to get the actual symbol mapping
-            original_df = pd.read_csv(self.stock_data.data_file)
-            available_symbols = original_df['symbol'].unique()
+            # Retrieve the encoded and scaled value of the symbol
+            scaled_value = self.retrieve_scaled_symbol(symbol)
 
-            if symbol not in available_symbols:
-                raise ValueError(f"Symbol '{symbol}' not found in the dataset. Available symbols: {', '.join(available_symbols[:5])}...")
+            # Filter data for the specific symbol (use scaled_value instead of encoded_symbol)
+            data = df[df['symbol_encoded'] == scaled_value].copy()
 
-            # Get the encoded value for the symbol
-            symbol_encoded = float(self.stock_data.label_encoder.transform([symbol])[0])
-            
-            # Filter data for the specific symbol
-            data = df[df['symbol_encoded'] == symbol_encoded].copy()
-            
-            if len(data) == 0:
+            if data.empty:
                 raise ValueError(f"No processed data available for symbol: {symbol}")
 
-            # Get the sequence length from the model's input shape
-            seq_length = self.model.layers[0].input_shape[1]
-            
+            # Check sequence length requirement
+            seq_length = self.model.input_shape[1]
             if len(data) < seq_length:
-                raise ValueError(f"Insufficient data for symbol {symbol}. Need at least {seq_length} data points.")
+                raise ValueError(f"Insufficient data for symbol {symbol}. "
+                                f"Need at least {seq_length} data points.")
 
-            # Sort data by date and get the latest date
+            # Sort data by date
             data = data.sort_values('date')
             latest_date = data['date'].max()
 
-            # Prepare input sequence
+            # Prepare input sequence for the model
             X = data[features].values[-seq_length:].reshape(1, seq_length, len(features))
 
-            # Make predictions for all periods
+            # Generate predictions
             raw_predictions = self.model.predict(X)
 
-            # Initialize predictions dictionary
+            # Initialize the predictions dictionary
             predictions = {}
-            
-            # Get the last row of actual data for reference values
-            last_row = data.iloc[-1]
-            
-            # Create a dummy array for inverse scaling
-            dummy_array = np.zeros((1, len(features) + 30))  # features + 30 target columns
-            
+
+            # Create dummy array for inverse scaling
+            dummy_array = np.zeros((1, len(features) + 30))
+
             for i in range(30):
                 period = f'day{i+1}'
-                
-                # Calculate the prediction date (excluding weekends)
+
+                # Get the predicted date (business day only)
                 pred_date = self.get_next_business_day(latest_date, days=i+1)
-                
-                # Get the scaled prediction for this period
-                scaled_pred = raw_predictions[0][i]
-                
-                # Put the prediction in the correct position for inverse scaling
-                dummy_array[0, len(features) + i] = scaled_pred
-                
-                # Inverse transform to get the actual price
+
+                # Scale and inverse transform predictions
+                dummy_array[0, len(features) + i] = raw_predictions[0][i]
                 unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, len(features) + i]
-                
+
+                # Add to predictions dictionary
                 predictions[period] = {
                     'date': pred_date.strftime('%Y-%m-%d'),
                     'predicted_price': float(unscaled_pred),
+                    'price_type': 'close' if i == 29 else 'next_day_open' if i == 28 else 'intermediate'
                 }
 
-                # For day30, this is the closing price
-                if i == 29:  # day30
-                    predictions[period]['price_type'] = 'close'
-                # For day29, this is the opening price for day30
-                elif i == 28:  # day29
-                    predictions[period]['price_type'] = 'next_day_open'
-                else:
-                    predictions[period]['price_type'] = 'intermediate'
-
-                # Copy over the last known technical indicators
-                # These will be updated in post-processing
-                predictions[period].update({
-                    'volume': float(last_row['volume']),
-                    'volatility': float(last_row['volatility']),
-                    'ma_20': float(last_row['ma_20']),
-                    'ma_50': float(last_row['ma_50']),
-                    'rsi': float(last_row['rsi']),
-                    'macd': float(last_row['macd'])
-                })
-
-            # Post-process predictions to update technical indicators
-            self._update_technical_indicators(predictions, last_row)
+            # Update technical indicators in predictions
+            self._update_technical_indicators(predictions, data.iloc[-1])
 
             print("Predictions generated successfully.")
             return predictions
@@ -120,48 +120,47 @@ class StockPredictor:
             print(f"Error during prediction: {e}")
             raise
 
+
     def _update_technical_indicators(self, predictions, last_row):
         """Update technical indicators for the predicted prices."""
         try:
-            # Create a temporary dataframe with historical and predicted prices
+            # Create a temporary DataFrame for historical and predicted prices
             temp_df = pd.DataFrame(predictions).T
             temp_df['date'] = pd.to_datetime(temp_df['date'])
             temp_df = temp_df.sort_values('date')
 
+            # Combine historical and predicted prices
+            historical_prices = [last_row['close']]
+            predicted_prices = [pred['predicted_price'] for pred in predictions.values()]
+            all_prices = pd.Series(historical_prices + predicted_prices)
+
             # Calculate returns
-            prices = [last_row['close']] + [p['predicted_price'] for p in predictions.values()]
-            returns = pd.Series(prices).pct_change().values[1:]
-            
-            # Update volatility (20-day rolling standard deviation of returns)
-            historical_returns = pd.Series(last_row['returns'])
-            rolling_returns = pd.concat([historical_returns, pd.Series(returns)])
-            volatility = rolling_returns.rolling(window=20).std().values[-len(returns):]
+            returns = all_prices.pct_change().dropna()
 
-            # Update moving averages
-            historical_prices = pd.Series(last_row['close'])
-            all_prices = pd.concat([historical_prices, pd.Series([p['predicted_price'] for p in predictions.values()])])
-            ma_20 = all_prices.rolling(window=20).mean().values[-len(returns):]
-            ma_50 = all_prices.rolling(window=50).mean().values[-len(returns):]
+            # Calculate technical indicators
+            volatility = returns.rolling(window=20).std()
+            ma_20 = all_prices.rolling(window=20).mean()
+            ma_50 = all_prices.rolling(window=50).mean()
 
-            # Update RSI
+            # RSI
             delta = all_prices.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+            loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
             rs = gain / loss
-            rsi = 100 - (100 / (1 + rs)).values[-len(returns):]
+            rsi = 100 - (100 / (1 + rs))
 
-            # Update MACD
+            # MACD
             exp1 = all_prices.ewm(span=12, adjust=False).mean()
             exp2 = all_prices.ewm(span=26, adjust=False).mean()
-            macd = (exp1 - exp2).values[-len(returns):]
+            macd = exp1 - exp2
 
-            # Update the predictions dictionary with new technical indicators
+            # Update predictions with calculated indicators
             for i, (period, pred) in enumerate(predictions.items()):
-                pred['volatility'] = float(volatility[i]) if i < len(volatility) else float(volatility[-1])
-                pred['ma_20'] = float(ma_20[i]) if i < len(ma_20) else float(ma_20[-1])
-                pred['ma_50'] = float(ma_50[i]) if i < len(ma_50) else float(ma_50[-1])
-                pred['rsi'] = float(rsi[i]) if i < len(rsi) else float(rsi[-1])
-                pred['macd'] = float(macd[i]) if i < len(macd) else float(macd[-1])
+                pred['volatility'] = float(volatility.iloc[i]) if i < len(volatility) else float(volatility.iloc[-1])
+                pred['ma_20'] = float(ma_20.iloc[i]) if i < len(ma_20) else float(ma_20.iloc[-1])
+                pred['ma_50'] = float(ma_50.iloc[i]) if i < len(ma_50) else float(ma_50.iloc[-1])
+                pred['rsi'] = float(rsi.iloc[i]) if i < len(rsi) else float(rsi.iloc[-1])
+                pred['macd'] = float(macd.iloc[i]) if i < len(macd) else float(macd.iloc[-1])
 
         except Exception as e:
             print(f"Error updating technical indicators: {e}")

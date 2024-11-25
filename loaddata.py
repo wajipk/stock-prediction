@@ -85,37 +85,62 @@ class StockData:
             self.logger.error(f"Error in create_multistep_labels: {e}")
             raise
 
-    def load_stock_data(self, use_incremental=False) -> pd.DataFrame:
+    def load_stock_data(self, use_incremental=False):
         try:
             self.logger.info("Loading stock data...")
             if not os.path.exists(self.data_file):
                 raise FileNotFoundError(f"{self.data_file} not found.")
 
+            # Load raw data
             df = pd.read_csv(self.data_file, low_memory=False)
+
+            # Clean data
             df = self.clean_data(df)
+
+            # Add technical indicators
             df = self.calculate_technical_indicators(df)
 
+            # Create multi-step target labels
             periods = {f'day{i}': i for i in range(1, 31)}
             df = self.create_multistep_labels(df, periods)
 
-            # Encode and drop 'symbol','name' column
+            # Encode the symbol column
             df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
-            df.drop(columns=['symbol'], inplace=True)
 
-            # Features
+            # Save complete symbol mapping
+            symbol_mapping = pd.DataFrame({
+                'symbol': df['symbol'],
+                'symbol_encoded_unscaled': self.label_encoder.transform(df['symbol']),
+                'symbol_encoded_scaled': None  # Placeholder, will be filled after scaling
+            }).drop_duplicates()
+
+            # Features to scale
             features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']
 
-            # Scale features and target labels
+            # Scale all features
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
                 df[features + [f'target_day{i}' for i in range(1, 31)]]
             )
 
-            # Save encoders and scalers
-            joblib.dump(self.label_encoder, self.encoder_file)
-            joblib.dump(self.scaler, self.scaler_file)
+            # Update scaled values in the symbol mapping
+            scaled_mapping = df[['symbol_encoded', 'symbol']].drop_duplicates().rename(
+                columns={'symbol_encoded': 'symbol_encoded_scaled'}
+            )
+            symbol_mapping = symbol_mapping.merge(scaled_mapping, on='symbol', how='left')
 
-            df.to_csv(self.processed_file, index=False)
-            self.logger.info(f"Processed data saved at {self.processed_file}.")
+            # Save updated symbol mapping
+            mapping_file = os.path.join(self.data_path, 'symbol_mapping_complete.csv')
+            symbol_mapping.to_csv(mapping_file, index=False)
+            self.logger.info(f"Complete symbol mapping saved to {mapping_file}.")
+
+            # Drop the symbol column
+            df.drop(columns=['symbol'], inplace=True)
+
+            # Save processed data
+            processed_file = self.processed_file
+            df.to_csv(processed_file, index=False)
+            self.logger.info(f"Processed data saved at {processed_file}.")
+
             return df, features
 
         except Exception as e:

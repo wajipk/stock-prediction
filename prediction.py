@@ -108,8 +108,7 @@ class StockPredictor:
                 # Add to predictions dictionary
                 predictions[period] = {
                     'date': pred_date.strftime('%Y-%m-%d'),
-                    'predicted_price': float(unscaled_pred),
-                    'price_type': 'close' if i == 29 else 'next_day_open' if i == 28 else 'intermediate'
+                    'predicted_price': float(unscaled_pred)
                 }
 
             # Update technical indicators in predictions
@@ -121,7 +120,6 @@ class StockPredictor:
         except Exception as e:
             print(f"Error during prediction: {e}")
             raise
-
 
     def _update_technical_indicators(self, predictions, last_row):
         """Update technical indicators for the predicted prices."""
@@ -143,26 +141,14 @@ class StockPredictor:
             volatility = returns.rolling(window=20).std()
             ma_20 = all_prices.rolling(window=20).mean()
             ma_50 = all_prices.rolling(window=50).mean()
-
-            # RSI
             delta = all_prices.diff()
             gain = delta.where(delta > 0, 0).rolling(window=14).mean()
             loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs))
-
-            # MACD
             exp1 = all_prices.ewm(span=12, adjust=False).mean()
             exp2 = all_prices.ewm(span=26, adjust=False).mean()
             macd = exp1 - exp2
-
-            # Update predictions with calculated indicators
-            for i, (period, pred) in enumerate(predictions.items()):
-                pred['volatility'] = float(volatility.iloc[i]) if i < len(volatility) else float(volatility.iloc[-1])
-                pred['ma_20'] = float(ma_20.iloc[i]) if i < len(ma_20) else float(ma_20.iloc[-1])
-                pred['ma_50'] = float(ma_50.iloc[i]) if i < len(ma_50) else float(ma_50.iloc[-1])
-                pred['rsi'] = float(rsi.iloc[i]) if i < len(rsi) else float(rsi.iloc[-1])
-                pred['macd'] = float(macd.iloc[i]) if i < len(macd) else float(macd.iloc[-1])
 
         except Exception as e:
             print(f"Error updating technical indicators: {e}")

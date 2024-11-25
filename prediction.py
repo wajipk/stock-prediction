@@ -44,6 +44,7 @@ class StockPredictor:
         except FileNotFoundError:
             print("Error: Mapping file not found. Ensure preprocessing has been run.")
             raise
+
         except Exception as e:
             print(f"Error retrieving scaled symbol for '{symbol}': {e}")
             raise
@@ -79,7 +80,8 @@ class StockPredictor:
 
             # Sort data by date
             data = data.sort_values('date')
-            latest_date = data['date'].max()
+            maximum_date = data['date'].max()
+            latest_date = maximum_date + BDay(30)
 
             # Prepare input sequence for the model
             X = data[features].values[-seq_length:].reshape(1, seq_length, len(features))

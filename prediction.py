@@ -58,10 +58,8 @@ class StockPredictor:
             df['date'] = pd.to_datetime(df['date'])
 
             # Define feature columns
-            features = [
-                'close', 'volume', 'volatility', 'ma_20', 'ma_50',
-                'rsi', 'macd', 'open', 'symbol_encoded'
-            ]
+            features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
+                        'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
 
             # Retrieve the encoded and scaled value of the symbol
             scaled_value = self.retrieve_scaled_symbol(symbol)
@@ -139,8 +137,9 @@ class StockPredictor:
 
             # Calculate technical indicators
             volatility = returns.rolling(window=20).std()
-            ma_20 = all_prices.rolling(window=20).mean()
-            ma_50 = all_prices.rolling(window=50).mean()
+            ma_14 = all_prices.rolling(window=14).mean()  # 14-day moving average
+            ma_30 = all_prices.rolling(window=30).mean()  # 30-day moving average
+            ma_50 = all_prices.rolling(window=50).mean()  # 50-day moving average
             delta = all_prices.diff()
             gain = delta.where(delta > 0, 0).rolling(window=14).mean()
             loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
@@ -149,6 +148,8 @@ class StockPredictor:
             exp1 = all_prices.ewm(span=12, adjust=False).mean()
             exp2 = all_prices.ewm(span=26, adjust=False).mean()
             macd = exp1 - exp2
+
+            print("Technical indicators updated successfully.")
 
         except Exception as e:
             print(f"Error updating technical indicators: {e}")

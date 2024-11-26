@@ -15,24 +15,29 @@ def main():
 
     args = parser.parse_args()
 
+    # Data preprocessing step
     if args.preprocess == 1:
         print("Starting data preprocessing...")
         stock_data = StockData()
-        stock_data.load_stock_data(use_incremental=False)
+        # Preprocess the data (clean, calculate technical indicators, and generate labels)
+        stock_data.preprocess_data()
         print("Data preprocessing completed.")
 
+    # Model training step
     if args.train == 1:
         print("Starting model training...")
         trainer = ModelTrainer()
         trainer.train()
         print("Model training completed.")
 
+    # Prediction step
     if args.symbol:
         print(f"Predicting for stock symbol: {args.symbol}...")
         predictor = StockPredictor()
         predictions = predictor.predict_all_periods(args.symbol)
         print(json.dumps(predictions, indent=4))
 
+        # If plotting is enabled, generate and display the prediction plot
         if args.plot == 1:
             print("Generating prediction plot...")
             dates = [prediction['date'] for prediction in predictions.values()]

@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from sklearn.preprocessing import RobustScaler, LabelEncoder
 import os
 import logging
@@ -14,7 +13,13 @@ class StockData:
         self.scaler = RobustScaler()
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(self.data_path, 'trade_data.csv')
-        self.processed_file = os.path.join(self.data_path, 'trade_preprocessed_data.csv')
+        
+        # Set processed file path to Temp directory
+        self.temp_directory = os.path.join(self.data_path, 'Temp')
+        if not os.path.exists(self.temp_directory):
+            os.makedirs(self.temp_directory)
+        
+        self.processed_file = os.path.join(self.temp_directory, 'trade_preprocessed_data.csv')
         self.encoder_file = os.path.join(self.data_path, 'label_encoder.pkl')
         self.scaler_file = os.path.join(self.data_path, 'scaler.pkl')
 
@@ -99,9 +104,9 @@ class StockData:
             self.logger.error(f"Error in create_multistep_labels: {e}")
             raise
 
-    def load_stock_data(self, use_incremental=False):
+    def preprocess_data(self):
         try:
-            self.logger.info("Loading stock data...")
+            self.logger.info("Starting preprocessing of stock data...")
 
             if not os.path.exists(self.data_file):
                 raise FileNotFoundError(f"{self.data_file} not found.")
@@ -152,10 +157,30 @@ class StockData:
             # Drop the symbol column
             df.drop(columns=['symbol'], inplace=True)
 
-            # Save processed data
+            # Save processed data to the Temp directory
             processed_file = self.processed_file
             df.to_csv(processed_file, index=False)
             self.logger.info(f"Processed data saved at {processed_file}.")
+
+            return df, features
+
+        except Exception as e:
+            self.logger.error(f"Error in preprocess_data: {e}")
+            raise
+
+    def load_stock_data(self, use_incremental=False):
+        try:
+            self.logger.info("Loading preprocessed stock data...")
+
+            if not os.path.exists(self.processed_file):
+                raise FileNotFoundError(f"Preprocessed data not found. Please run preprocess_data first.")
+
+            # Load preprocessed data
+            df = pd.read_csv(self.processed_file, low_memory=False)
+
+            # Extract features used in model
+            features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
+                        'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
 
             return df, features
 

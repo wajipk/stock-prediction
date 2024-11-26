@@ -73,7 +73,6 @@ class ModelTrainer:
 
             model.model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['mae'])
 
-
             # Training
             print("Starting model training...")
             history = model.model.fit(

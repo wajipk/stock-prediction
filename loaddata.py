@@ -79,13 +79,6 @@ class StockData:
             # Force Index (FI) = (close - previous close) * volume
             df['force_index'] = (df['close'] - df['close'].shift(1)) * df['volume']
 
-            # MFI (Money Flow Index)
-            df['typical_price'] = (df['high'] + df['low'] + df['close']) / 3
-            df['money_flow'] = df['typical_price'] * df['volume']
-            df['money_flow_pos'] = np.where(df['typical_price'] > df['typical_price'].shift(1), df['money_flow'], 0)
-            df['money_flow_neg'] = np.where(df['typical_price'] < df['typical_price'].shift(1), df['money_flow'], 0)
-            df['mfi'] = 100 - (100 / (1 + df['money_flow_pos'].rolling(window=14).sum() / df['money_flow_neg'].rolling(window=14).sum()))
-
             self.logger.info("Technical indicators calculated.")
             return df
 

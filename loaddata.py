@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from sklearn.preprocessing import MinMaxScaler, LabelEncoder
+from sklearn.preprocessing import RobustScaler, LabelEncoder
 import os
 import logging
 import joblib
@@ -11,7 +11,7 @@ class StockData:
     def __init__(self, data_path: str = './'):
         # File paths
         self.data_path = os.path.abspath(data_path)
-        self.scaler = MinMaxScaler()
+        self.scaler = RobustScaler()
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(self.data_path, 'trade_data.csv')
         self.processed_file = os.path.join(self.data_path, 'trade_preprocessed_data.csv')
@@ -35,12 +35,6 @@ class StockData:
             if 'name' in df.columns:
                 df.drop(columns=['name'], inplace=True)
 
-            for col in ['close', 'volume']:
-                Q1 = df[col].quantile(0.25)
-                Q3 = df[col].quantile(0.75)
-                IQR = Q3 - Q1
-                df = df[~((df[col] < (Q1 - 1.5 * IQR)) | (df[col] > (Q3 + 1.5 * IQR)))]
-
             self.logger.info("Data cleaning completed.")
             return df
 
@@ -51,19 +45,46 @@ class StockData:
     def calculate_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
             self.logger.info("Calculating technical indicators...")
+
+            # Returns (percentage change in close price)
             df['returns'] = df['close'].pct_change()
+
+            # Volatility (rolling standard deviation of returns)
             df['volatility'] = df['returns'].rolling(window=20).std()
-            df['ma_20'] = df['close'].rolling(window=20).mean()
+
+            # Moving Averages (MA)
+            df['ma_14'] = df['close'].rolling(window=14).mean()
+            df['ma_30'] = df['close'].rolling(window=30).mean()
             df['ma_50'] = df['close'].rolling(window=50).mean()
-            delta = df['close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            df['rsi'] = 100 - (100 / (1 + rs))
+
+            # RSI (Relative Strength Index) for different periods
+            for period in [14, 30, 50]:
+                delta = df['close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+                rs = gain / loss
+                df[f'rsi_{period}'] = 100 - (100 / (1 + rs))
+
+            # MACD (Moving Average Convergence Divergence)
             exp1 = df['close'].ewm(span=12, adjust=False).mean()
             exp2 = df['close'].ewm(span=26, adjust=False).mean()
             df['macd'] = exp1 - exp2
             df['signal_line'] = df['macd'].ewm(span=9, adjust=False).mean()
+
+            # OBV (On-Balance Volume)
+            df['obv'] = np.where(df['close'] > df['close'].shift(1), df['volume'], 
+                                 np.where(df['close'] < df['close'].shift(1), -df['volume'], 0))
+            df['obv'] = df['obv'].cumsum()
+
+            # Force Index (FI) = (close - previous close) * volume
+            df['force_index'] = (df['close'] - df['close'].shift(1)) * df['volume']
+
+            # MFI (Money Flow Index)
+            df['typical_price'] = (df['high'] + df['low'] + df['close']) / 3
+            df['money_flow'] = df['typical_price'] * df['volume']
+            df['money_flow_pos'] = np.where(df['typical_price'] > df['typical_price'].shift(1), df['money_flow'], 0)
+            df['money_flow_neg'] = np.where(df['typical_price'] < df['typical_price'].shift(1), df['money_flow'], 0)
+            df['mfi'] = 100 - (100 / (1 + df['money_flow_pos'].rolling(window=14).sum() / df['money_flow_neg'].rolling(window=14).sum()))
 
             self.logger.info("Technical indicators calculated.")
             return df
@@ -88,6 +109,7 @@ class StockData:
     def load_stock_data(self, use_incremental=False):
         try:
             self.logger.info("Loading stock data...")
+
             if not os.path.exists(self.data_file):
                 raise FileNotFoundError(f"{self.data_file} not found.")
 
@@ -115,7 +137,8 @@ class StockData:
             }).drop_duplicates()
 
             # Features to scale
-            features = ['close', 'volume', 'volatility', 'ma_20', 'ma_50', 'rsi', 'macd', 'open', 'symbol_encoded']
+            features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
+                        'macd', 'obv', 'force_index', 'mfi', 'open', 'symbol_encoded']
 
             # Scale all features
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
@@ -156,7 +179,7 @@ class StockData:
             else:
                 self.logger.warning("Encoder or scaler file not found. Initializing new instances.")
                 self.label_encoder = LabelEncoder()
-                self.scaler = MinMaxScaler()
+                self.scaler = RobustScaler()
         except Exception as e:
             self.logger.error(f"Error loading encoder and scaler: {e}")
             raise

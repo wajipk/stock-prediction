@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization
+from tensorflow.keras import regularizers
 
 
 class StockPredictionModel:
@@ -15,23 +16,32 @@ class StockPredictionModel:
         model = Sequential([
             Input(shape=(self.seq_length, self.n_features)),
 
-            LSTM(128, return_sequences=True),
+            # LSTM layer with L2 regularization
+            LSTM(128, return_sequences=True, kernel_regularizer=regularizers.l2(0.001)),
             BatchNormalization(),
             Dropout(0.3),
 
-            LSTM(64, return_sequences=True),
+            # LSTM layer with L2 regularization
+            LSTM(64, return_sequences=True, kernel_regularizer=regularizers.l2(0.001)),
             BatchNormalization(),
             Dropout(0.3),
 
-            LSTM(32, return_sequences=False),
+            # LSTM layer with L2 regularization
+            LSTM(32, return_sequences=False, kernel_regularizer=regularizers.l2(0.001)),
             BatchNormalization(),
             Dropout(0.3),
 
-            Dense(64, activation='relu'),
+            # Dense layers with L2 regularization
+            Dense(128, activation='relu', kernel_regularizer=regularizers.l2(0.001)),
             BatchNormalization(),
             Dropout(0.2),
 
-            Dense(self.n_outputs)  # Output layer for multi-output prediction
+            Dense(64, activation='relu', kernel_regularizer=regularizers.l2(0.001)),
+            BatchNormalization(),
+            Dropout(0.2),
+
+            # Output layer
+            Dense(self.n_outputs)
         ])
 
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])

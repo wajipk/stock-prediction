@@ -131,7 +131,7 @@ class StockData:
 
             # Features to scale
             features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
-                        'macd', 'obv', 'force_index', 'mfi', 'open', 'symbol_encoded']
+                        'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
 
             # Scale all features
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(

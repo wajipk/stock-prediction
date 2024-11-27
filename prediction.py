@@ -37,7 +37,7 @@ class StockPredictor:
             scaled_value = matching_row['symbol_encoded_scaled_y'].iloc[0]
 
             print(f"Encoded value for '{symbol}': {encoded_symbol}")
-            print(f"MinMax-scaled value for '{symbol}': {scaled_value}")
+            print(f"Scaled value for '{symbol}': {scaled_value}")
 
             return scaled_value
 
@@ -91,7 +91,7 @@ class StockPredictor:
             predictions = {}
 
             # Create dummy array for inverse scaling
-            dummy_array = np.zeros((1, len(features) + 30))
+            dummy_array = np.zeros((1, len(features)))  # Match the number of features used during training/scaling
 
             for i in range(30):
                 period = f'day{i+1}'
@@ -99,9 +99,11 @@ class StockPredictor:
                 # Get the predicted date (business day only)
                 pred_date = self.get_next_business_day(latest_date, days=i+1)
 
-                # Scale and inverse transform predictions
-                dummy_array[0, len(features) + i] = raw_predictions[0][i]
-                unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, len(features) + i]
+                # Add prediction to the dummy array at the appropriate position for inverse scaling
+                dummy_array[0, -1] = raw_predictions[0][i]  # Insert predicted value in the last column
+
+                # Inverse transform to get unscaled prediction
+                unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, -1]
 
                 # Add to predictions dictionary
                 predictions[period] = {

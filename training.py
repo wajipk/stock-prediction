@@ -27,7 +27,7 @@ class ModelTrainer:
 
             dataset = tf.data.Dataset.from_generator(
                 sequence_generator,
-                output_signature=(
+                output_signature=( 
                     tf.TensorSpec(shape=(self.seq_length, len(features)), dtype=tf.float32),
                     tf.TensorSpec(shape=(len(periods),), dtype=tf.float32)
                 )
@@ -46,10 +46,14 @@ class ModelTrainer:
     def train(self, model_path='./stock_model.keras'):
         try:
             # GPU configuration
-            gpus = tf.config.experimental.list_physical_devices('GPU')
+            gpus = tf.config.list_physical_devices('GPU')
             if gpus:
                 for gpu in gpus:
-                    tf.config.experimental.set_memory_growth(gpu, True)
+                    try:
+                        # Set memory growth to avoid TensorFlow allocating all the memory at once
+                        tf.config.set_memory_growth(gpu, True)
+                    except RuntimeError as e:
+                        print(f"Error setting memory growth: {e}")
 
             # Data loading
             print("Loading preprocessed data...")

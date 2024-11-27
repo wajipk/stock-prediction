@@ -58,10 +58,10 @@ class StockPredictor:
             df['date'] = pd.to_datetime(df['date'])
 
             # Define feature columns
-            features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
+            features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50',
                         'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
 
-            # Retrieve the encoded and scaled value of the symbol
+            # Retrieve the scaled value of the symbol
             scaled_value = self.retrieve_scaled_symbol(symbol)
 
             # Filter data for the specific symbol (use scaled_value instead of encoded_symbol)
@@ -74,7 +74,7 @@ class StockPredictor:
             seq_length = self.model.input_shape[1]
             if len(data) < seq_length:
                 raise ValueError(f"Insufficient data for symbol {symbol}. "
-                                f"Need at least {seq_length} data points.")
+                                 f"Need at least {seq_length} data points.")
 
             # Sort data by date
             data = data.sort_values('date')
@@ -91,7 +91,7 @@ class StockPredictor:
             predictions = {}
 
             # Create dummy array for inverse scaling
-            dummy_array = np.zeros((1, len(features)))  # Match the number of features used during training/scaling
+            dummy_array = np.zeros((1, len(self.stock_data.scaler.min_)))  # Match the scaler's fitted shape
 
             for i in range(30):
                 period = f'day{i+1}'
@@ -99,11 +99,12 @@ class StockPredictor:
                 # Get the predicted date (business day only)
                 pred_date = self.get_next_business_day(latest_date, days=i+1)
 
-                # Add prediction to the dummy array at the appropriate position for inverse scaling
-                dummy_array[0, -1] = raw_predictions[0][i]  # Insert predicted value in the last column
+                # Insert prediction in the correct target column
+                target_index = len(features) - 1  # Use the correct target index within scaler dimensions
+                dummy_array[0, target_index] = raw_predictions[0][i]
 
-                # Inverse transform to get unscaled prediction
-                unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, -1]
+                # Inverse transform to get the unscaled prediction
+                unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, target_index]
 
                 # Add to predictions dictionary
                 predictions[period] = {
@@ -111,48 +112,9 @@ class StockPredictor:
                     'predicted_price': float(unscaled_pred)
                 }
 
-            # Update technical indicators in predictions
-            self._update_technical_indicators(predictions, data.iloc[-1])
-
             print("Predictions generated successfully.")
             return predictions
 
         except Exception as e:
             print(f"Error during prediction: {e}")
-            raise
-
-    def _update_technical_indicators(self, predictions, last_row):
-        """Update technical indicators for the predicted prices."""
-        try:
-            # Create a temporary DataFrame for historical and predicted prices
-            temp_df = pd.DataFrame(predictions).T
-            temp_df['date'] = pd.to_datetime(temp_df['date'])
-            temp_df = temp_df.sort_values('date')
-
-            # Combine historical and predicted prices
-            historical_prices = [last_row['close']]
-            predicted_prices = [pred['predicted_price'] for pred in predictions.values()]
-            all_prices = pd.Series(historical_prices + predicted_prices)
-
-            # Calculate returns
-            returns = all_prices.pct_change().dropna()
-
-            # Calculate technical indicators
-            volatility = returns.rolling(window=20).std()
-            ma_14 = all_prices.rolling(window=14).mean()  # 14-day moving average
-            ma_30 = all_prices.rolling(window=30).mean()  # 30-day moving average
-            ma_50 = all_prices.rolling(window=50).mean()  # 50-day moving average
-            delta = all_prices.diff()
-            gain = delta.where(delta > 0, 0).rolling(window=14).mean()
-            loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
-            exp1 = all_prices.ewm(span=12, adjust=False).mean()
-            exp2 = all_prices.ewm(span=26, adjust=False).mean()
-            macd = exp1 - exp2
-
-            print("Technical indicators updated successfully.")
-
-        except Exception as e:
-            print(f"Error updating technical indicators: {e}")
             raise

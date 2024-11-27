@@ -1,4 +1,4 @@
-import pandas as pd
+import os
 import tensorflow as tf
 from loaddata import StockData
 from model import StockPredictionModel
@@ -45,16 +45,28 @@ class ModelTrainer:
 
     def train(self, model_path='./stock_model.keras'):
         try:
-            # GPU configuration
-            gpus = tf.config.list_physical_devices('GPU')
-            if gpus:
-                for gpu in gpus:
-                    try:
-                        # Set memory growth to avoid TensorFlow allocating all the memory at once
-                        tf.config.set_memory_growth(gpu, True)
-                    except RuntimeError as e:
-                        print(f"Error setting memory growth: {e}")
+            # OS-based GPU configuration check
+            system_os = os.name  # 'posix' for Linux, 'nt' for Windows
 
+            if system_os == 'posix':  # This means we're on Linux (including Ubuntu)
+                # Use the old code for GPU config in Ubuntu (Linux-based OS)
+                gpus = tf.config.experimental.list_physical_devices('GPU')
+                if gpus:
+                    for gpu in gpus:
+                        tf.config.experimental.set_memory_growth(gpu, True)
+                print("Using GPU configuration method for Ubuntu (Linux).")
+
+            elif system_os == 'nt':  # This means we're on Windows
+                # Use the new code for GPU config in Windows
+                gpus = tf.config.list_physical_devices('GPU')
+                if gpus:
+                    for gpu in gpus:
+                        tf.config.set_memory_growth(gpu, True)
+                print("Using GPU configuration method for Windows.")
+
+            else:
+                print("Unsupported OS for automatic GPU configuration.")
+            
             # Data loading
             print("Loading preprocessed data...")
             stock_data = StockData()

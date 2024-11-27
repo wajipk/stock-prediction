@@ -5,7 +5,7 @@ from model import StockPredictionModel
 
 
 class ModelTrainer:
-    def __init__(self, seq_length=365, batch_size=16, epochs=50):
+    def __init__(self, seq_length=365, batch_size=32, epochs=50):
         self.seq_length = seq_length
         self.batch_size = batch_size
         self.epochs = epochs

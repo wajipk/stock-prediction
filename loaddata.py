@@ -4,6 +4,7 @@ from sklearn.preprocessing import RobustScaler, LabelEncoder
 import os
 import logging
 import joblib
+from pandas.tseries.offsets import BDay
 
 
 class StockData:
@@ -29,14 +30,14 @@ class StockData:
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
             self.logger.info("Starting data cleaning...")
+
             df['date'] = pd.to_datetime(df['date'])
             df = df.sort_values('date').drop_duplicates(subset=['date', 'symbol'], keep='last')
             df['close'] = df['close'].interpolate(method='linear')
             df['volume'] = df['volume'].fillna(df['volume'].mean())
-            df['open'] = df['close'].shift(1).fillna(df['close'])
             df.dropna(inplace=True)
 
-            # Drop unused column
+            # Drop unused 'name' column if exists
             if 'name' in df.columns:
                 df.drop(columns=['name'], inplace=True)
 
@@ -93,9 +94,27 @@ class StockData:
 
     def create_multistep_labels(self, df: pd.DataFrame, periods: dict) -> pd.DataFrame:
         try:
-            self.logger.info("Creating multi-step target labels...")
-            for period, days in periods.items():
-                df[f'target_{period}'] = df.groupby('symbol')['close'].shift(-days)
+            self.logger.info("Creating multi-step target labels based on business days...")
+
+            # Ensure the dataframe is sorted by date for each symbol
+            df = df.sort_values(by=['symbol', 'date'])
+
+            # For each symbol, create target columns based on business days
+            for symbol in df['symbol'].unique():
+                symbol_data = df[df['symbol'] == symbol].copy()
+
+                for period, days in periods.items():
+                    # Calculate the target date based on business days (skip weekends and holidays)
+                    target_date = symbol_data['date'].iloc[0] + BDay(days)
+
+                    # Find the corresponding price for the target date
+                    target_price = symbol_data[symbol_data['date'] == target_date]['close']
+
+                    # If there's no data for the target date, leave NaN
+                    if target_price.empty:
+                        df.loc[symbol_data.index, f'target_{period}'] = np.nan
+                    else:
+                        df.loc[symbol_data.index, f'target_{period}'] = target_price.iloc[0]
 
             df.dropna(inplace=True)
             return df
@@ -120,7 +139,7 @@ class StockData:
             # Add technical indicators
             df = self.calculate_technical_indicators(df)
 
-            # Create multi-step target labels
+            # Create multi-step target labels based on business days
             periods = {f'day{i}': i for i in range(1, 31)}
             df = self.create_multistep_labels(df, periods)
 
@@ -134,9 +153,9 @@ class StockData:
                 'symbol_encoded_scaled': None  # Placeholder, will be filled after scaling
             }).drop_duplicates()
 
-            # Features to scale
+            # Features to scale (excluding 'open')
             features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
-                        'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
+                        'macd', 'obv', 'force_index', 'symbol_encoded']
 
             # Scale all features
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
@@ -180,7 +199,7 @@ class StockData:
 
             # Extract features used in model
             features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
-                        'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
+                        'macd', 'obv', 'force_index', 'symbol_encoded']
 
             return df, features
 

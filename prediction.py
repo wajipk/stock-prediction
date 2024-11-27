@@ -59,7 +59,7 @@ class StockPredictor:
 
             # Define feature columns
             features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50',
-                        'macd', 'obv', 'force_index', 'open', 'symbol_encoded']
+                        'macd', 'obv', 'force_index', 'symbol_encoded']
 
             # Retrieve the scaled value of the symbol
             scaled_value = self.retrieve_scaled_symbol(symbol)

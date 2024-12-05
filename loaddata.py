@@ -37,7 +37,7 @@ class StockData:
             df['volume'] = df['volume'].fillna(df['volume'].mean())
             df.dropna(inplace=True)
 
-            # Drop unused 'name' column if exists
+            # Drop 'name' column if it exists
             if 'name' in df.columns:
                 df.drop(columns=['name'], inplace=True)
 
@@ -116,7 +116,7 @@ class StockData:
                     else:
                         df.loc[symbol_data.index, f'target_{period}'] = target_price.iloc[0]
 
-            df.dropna(inplace=True)
+            df.dropna(inplace=True)  # Drop rows where any target is NaN
             return df
 
         except Exception as e:
@@ -153,13 +153,13 @@ class StockData:
                 'symbol_encoded_scaled': None  # Placeholder, will be filled after scaling
             }).drop_duplicates()
 
-            # Features to scale (excluding 'open')
+            # Features to scale
             features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
                         'macd', 'obv', 'force_index', 'symbol_encoded']
 
             # Scale all features
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
-                df[features + [f'target_day{i}' for i in range(1, 31)]]
+                df[features + [f'target_day{i}' for i in range(1, 31)]] 
             )
 
             # Update scaled values in the symbol mapping

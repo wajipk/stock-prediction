@@ -99,22 +99,26 @@ class StockData:
             # Ensure the dataframe is sorted by date for each symbol
             df = df.sort_values(by=['symbol', 'date'])
 
-            # For each symbol, create target columns based on business days
+            # Create target columns for each symbol
             for symbol in df['symbol'].unique():
                 symbol_data = df[df['symbol'] == symbol].copy()
 
-                for period, days in periods.items():
-                    # Calculate the target date based on business days (skip weekends and holidays)
-                    target_date = symbol_data['date'].iloc[0] + BDay(days)
+                # For each row in the symbol's data, calculate the target labels
+                for i in range(1, 31):  # For each target day (target_day1 to target_day30)
+                    symbol_data[f'target_day{i}'] = np.nan  # Initialize target columns
 
-                    # Find the corresponding price for the target date
-                    target_price = symbol_data[symbol_data['date'] == target_date]['close']
+                    for index, row in symbol_data.iterrows():
+                        # Calculate target date (next business day after the current date)
+                        target_date = row['date'] + BDay(i)
 
-                    # If there's no data for the target date, leave NaN
-                    if target_price.empty:
-                        df.loc[symbol_data.index, f'target_{period}'] = np.nan
-                    else:
-                        df.loc[symbol_data.index, f'target_{period}'] = target_price.iloc[0]
+                        # Find the corresponding target price (closing price on target date)
+                        target_price = symbol_data[symbol_data['date'] == target_date]['close']
+
+                        if not target_price.empty:
+                            symbol_data.at[index, f'target_day{i}'] = target_price.iloc[0]
+
+                # Update the original dataframe with the target columns for each symbol
+                df.update(symbol_data)
 
             df.dropna(inplace=True)  # Drop rows where any target is NaN
             return df

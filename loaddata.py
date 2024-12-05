@@ -96,26 +96,51 @@ class StockData:
         try:
             self.logger.info("Creating multi-step target labels based on business days...")
 
-            # Ensure the dataframe is sorted by date for each symbol
-            df = df.sort_values(by=['symbol', 'date'])
-            
-            # Initialize target columns for each symbol
+            # Ensure the dataframe is sorted by symbol and date in ascending order (oldest date first)
+            df = df.sort_values(by=['symbol', 'date'], ascending=[True, True])
+
+            # Convert 'date' column to datetime if it's not already
+            df['date'] = pd.to_datetime(df['date'])
+
+            # Set 'date' as the index to enable time-based operations
+            df.set_index('date', inplace=True)
+
+            # Initialize the columns for the target days (target_day1 to target_day30)
+            target_columns = [f'target_day{i}' for i in range(1, 31)]
+
+            # Loop through each symbol and create the target columns
             for symbol in df['symbol'].unique():
                 symbol_data = df[df['symbol'] == symbol].copy()
 
                 # For each target day (target_day1 to target_day30)
                 for i in range(1, 31):
                     target_col = f'target_day{i}'
-                    symbol_data[target_col] = np.nan  # Initialize target column
-                    
-                    # Use shift() to get the next business day for each row
-                    symbol_data[target_col] = symbol_data['close'].shift(-i)
-                
-                # Update the original dataframe with the target columns for each symbol
-                df.update(symbol_data)
+
+                    # Loop through each row of the symbol's data and calculate the target value
+                    for index, row in symbol_data.iterrows():
+                        # Find the next business day for each row
+                        next_business_day = row.name + BDay(i)
+
+                        # Check if the next business day exists in the dataset
+                        if next_business_day in symbol_data.index:
+                            # Assign the close price of the target day (next business day)
+                            df.loc[index, target_col] = symbol_data.loc[next_business_day, 'close']
+                        else:
+                            # If no data is available for the target day, assign NaN
+                            df.loc[index, target_col] = np.nan
+
+                # After shifting, log whether the columns are populated
+                missing_cols = [col for col in target_columns if col not in df.columns or df[col].isna().all()]
+                if missing_cols:
+                    self.logger.warning(f"Missing or empty columns for {symbol}: {', '.join(missing_cols)}")
+
+            # Check if target columns were successfully created
+            missing_cols = [col for col in target_columns if col not in df.columns]
+            if missing_cols:
+                raise KeyError(f"Missing target columns: {', '.join(missing_cols)}")
 
             # Drop rows where any target is NaN (those without a valid future target)
-            df.dropna(inplace=True)
+            df.dropna(subset=target_columns, inplace=True)
 
             self.logger.info("Multi-step target labels created successfully.")
             return df

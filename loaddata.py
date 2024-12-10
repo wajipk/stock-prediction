@@ -5,7 +5,8 @@ import os
 import logging
 import joblib
 from pandas.tseries.offsets import BDay
-
+from multiprocessing import cpu_count
+from joblib import Parallel, delayed
 
 class StockData:
     def __init__(self, data_path: str = './'):
@@ -14,12 +15,12 @@ class StockData:
         self.scaler = RobustScaler()
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(self.data_path, 'trade_data.csv')
-        
+
         # Set processed file path to Temp directory
         self.temp_directory = os.path.join(self.data_path, 'Temp')
         if not os.path.exists(self.temp_directory):
             os.makedirs(self.temp_directory)
-        
+
         self.processed_file = os.path.join(self.temp_directory, 'trade_preprocessed_data.csv')
         self.encoder_file = os.path.join(self.data_path, 'label_encoder.pkl')
         self.scaler_file = os.path.join(self.data_path, 'scaler.pkl')
@@ -52,7 +53,7 @@ class StockData:
         try:
             self.logger.info("Calculating technical indicators...")
 
-            # Returns (percentage change in close price)
+            # Use vectorized pandas operations instead of loops
             df['returns'] = df['close'].pct_change()
 
             # Volatility (rolling standard deviation of returns)
@@ -78,7 +79,7 @@ class StockData:
             df['signal_line'] = df['macd'].ewm(span=9, adjust=False).mean()
 
             # OBV (On-Balance Volume)
-            df['obv'] = np.where(df['close'] > df['close'].shift(1), df['volume'], 
+            df['obv'] = np.where(df['close'] > df['close'].shift(1), df['volume'],
                                  np.where(df['close'] < df['close'].shift(1), -df['volume'], 0))
             df['obv'] = df['obv'].cumsum()
 
@@ -94,53 +95,46 @@ class StockData:
 
     def create_multistep_labels(self, df: pd.DataFrame, periods: dict) -> pd.DataFrame:
         try:
-            self.logger.info("Creating multi-step target labels based on business days...")
+            self.logger.info("Creating multi-step target labels...")
 
-            # Ensure the dataframe is sorted by symbol and date in ascending order (oldest date first)
+            # Ensure the date column is in datetime format
+            df['date'] = pd.to_datetime(df['date'])
             df = df.sort_values(by=['symbol', 'date'], ascending=[True, True])
 
-            # Convert 'date' column to datetime if it's not already
-            df['date'] = pd.to_datetime(df['date'])
+            # Function to create multi-step labels for each symbol
+            def process_symbol_data(symbol_data, periods):
+                # Set 'date' column as the index and convert to DatetimeIndex
+                symbol_data.set_index('date', inplace=True)
 
-            # Set 'date' as the index to enable time-based operations
-            df.set_index('date', inplace=True)
+                # Ensure the index is a DatetimeIndex for shift operation
+                if not isinstance(symbol_data.index, pd.DatetimeIndex):
+                    symbol_data.index = pd.to_datetime(symbol_data.index)
 
-            # Initialize the columns for the target days (target_day1 to target_day30)
-            target_columns = [f'target_day{i}' for i in range(1, 31)]
+                # Apply the shift for each period
+                for period, days in periods.items():
+                    # Shift close prices by the specified business days
+                    symbol_data[f'target_{period}'] = symbol_data['close'].shift(-days, freq=BDay())
+                
+                # Reset index after processing
+                symbol_data.reset_index(inplace=True)
+                return symbol_data
 
-            # Loop through each symbol and create the target columns
-            for symbol in df['symbol'].unique():
-                symbol_data = df[df['symbol'] == symbol].copy()
+            # Parallelize the operation for each symbol
+            symbols = df['symbol'].unique()
+            df_list = Parallel(n_jobs=cpu_count())(
+                delayed(process_symbol_data)(df[df['symbol'] == symbol], periods)
+                for symbol in symbols
+            )
 
-                # For each target day (target_day1 to target_day30)
-                for i in range(1, 31):
-                    target_col = f'target_day{i}'
+            # Combine the processed data
+            df = pd.concat(df_list)
 
-                    # Loop through each row of the symbol's data and calculate the target value
-                    for index, row in symbol_data.iterrows():
-                        # Find the next business day for each row
-                        next_business_day = row.name + BDay(i)
-
-                        # Check if the next business day exists in the dataset
-                        if next_business_day in symbol_data.index:
-                            # Assign the close price of the target day (next business day)
-                            df.loc[index, target_col] = symbol_data.loc[next_business_day, 'close']
-                        else:
-                            # If no data is available for the target day, assign NaN
-                            df.loc[index, target_col] = np.nan
-
-                # After shifting, log whether the columns are populated
-                missing_cols = [col for col in target_columns if col not in df.columns or df[col].isna().all()]
-                if missing_cols:
-                    self.logger.warning(f"Missing or empty columns for {symbol}: {', '.join(missing_cols)}")
-
-            # Check if target columns were successfully created
-            missing_cols = [col for col in target_columns if col not in df.columns]
-            if missing_cols:
-                raise KeyError(f"Missing target columns: {', '.join(missing_cols)}")
-
-            # Drop rows where any target is NaN (those without a valid future target)
+            # Drop rows with NaN values in any target column
+            target_columns = [f'target_{period}' for period in periods]
             df.dropna(subset=target_columns, inplace=True)
+
+            # Reset index
+            df.reset_index(drop=True, inplace=True)
 
             self.logger.info("Multi-step target labels created successfully.")
             return df
@@ -183,9 +177,16 @@ class StockData:
             features = ['close', 'volume', 'volatility', 'ma_14', 'ma_30', 'ma_50', 'rsi_14', 'rsi_30', 'rsi_50', 
                         'macd', 'obv', 'force_index', 'symbol_encoded']
 
+            # Check the DataFrame size before scaling
+            self.logger.debug(f"DataFrame shape before scaling: {df.shape}")
+
+            # Check if DataFrame has any rows after target creation
+            if df.shape[0] == 0:
+                raise ValueError("The DataFrame is empty after target creation. No data available for scaling.")
+
             # Scale all features
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
-                df[features + [f'target_day{i}' for i in range(1, 31)]] 
+                df[features + [f'target_day{i}' for i in range(1, 31)]]
             )
 
             # Update scaled values in the symbol mapping

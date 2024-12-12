@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import RobustScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 import os
 import logging
 import joblib
@@ -12,7 +12,7 @@ class StockData:
     def __init__(self, data_path: str = './'):
         # File paths
         self.data_path = os.path.abspath(data_path)
-        self.scaler = RobustScaler()
+        self.scaler = StandardScaler()
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(self.data_path, 'trade_data.csv')
 
@@ -243,7 +243,7 @@ class StockData:
             else:
                 self.logger.warning("Encoder or scaler file not found. Initializing new instances.")
                 self.label_encoder = LabelEncoder()
-                self.scaler = RobustScaler()
+                self.scaler = StandardScaler()
         except Exception as e:
             self.logger.error(f"Error loading encoder and scaler: {e}")
             raise

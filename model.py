@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, Bidirectional
 from tensorflow.keras import regularizers
 
 
@@ -16,18 +16,18 @@ class StockPredictionModel:
         model = Sequential([
             Input(shape=(self.seq_length, self.n_features)),
 
-            # LSTM layer with L2 regularization
-            LSTM(128, return_sequences=True, kernel_regularizer=regularizers.l2(0.001)),
+            # Bidirectional LSTM layer with L2 regularization
+            Bidirectional(LSTM(128, return_sequences=True, kernel_regularizer=regularizers.l2(0.001))),
             BatchNormalization(),
             Dropout(0.3),
 
-            # LSTM layer with L2 regularization
-            LSTM(64, return_sequences=True, kernel_regularizer=regularizers.l2(0.001)),
+            # Bidirectional LSTM layer with L2 regularization
+            Bidirectional(LSTM(64, return_sequences=True, kernel_regularizer=regularizers.l2(0.001))),
             BatchNormalization(),
             Dropout(0.3),
 
-            # LSTM layer with L2 regularization
-            LSTM(32, return_sequences=False, kernel_regularizer=regularizers.l2(0.001)),
+            # Bidirectional LSTM layer with L2 regularization
+            Bidirectional(LSTM(32, return_sequences=False, kernel_regularizer=regularizers.l2(0.001))),
             BatchNormalization(),
             Dropout(0.3),
 

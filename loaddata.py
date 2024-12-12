@@ -57,18 +57,18 @@ class StockData:
             df['returns'] = df['close'].pct_change()
 
             # Volatility (rolling standard deviation of returns)
-            df['volatility'] = df['returns'].rolling(window=20).std()
+            df['volatility'] = df['returns'].ewm(span=20, adjust=False).std()
 
             # Moving Averages (MA)
-            df['ma_14'] = df['close'].rolling(window=14).mean()
-            df['ma_30'] = df['close'].rolling(window=30).mean()
-            df['ma_50'] = df['close'].rolling(window=50).mean()
+            df['ma_14'] = df['close'].ewm(span=14, adjust=False).mean()
+            df['ma_30'] = df['close'].ewm(span=30, adjust=False).mean()
+            df['ma_50'] = df['close'].ewm(span=50, adjust=False).mean()
 
             # RSI (Relative Strength Index) for different periods
             for period in [14, 30, 50]:
                 delta = df['close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+                gain = delta.clip(lower=0).ewm(span=period, adjust=False).mean()
+                loss = -delta.clip(upper=0).ewm(span=period, adjust=False).mean()
                 rs = gain / loss
                 df[f'rsi_{period}'] = 100 - (100 / (1 + rs))
 
@@ -84,7 +84,7 @@ class StockData:
             df['obv'] = df['obv'].cumsum()
 
             # Force Index (FI) = (close - previous close) * volume
-            df['force_index'] = (df['close'] - df['close'].shift(1)) * df['volume']
+            df['force_index'] = df['close'].diff().mul(df['volume'], fill_value=0)
 
             self.logger.info("Technical indicators calculated.")
             return df

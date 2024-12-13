@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 import os
 import logging
 import joblib
@@ -12,7 +12,7 @@ class StockData:
     def __init__(self, data_path: str = './'):
         # File paths
         self.data_path = os.path.abspath(data_path)
-        self.scaler = StandardScaler()
+        self.scaler = MinMaxScaler()
         self.label_encoder = LabelEncoder()
         self.data_file = os.path.join(self.data_path, 'trade_data.csv')
 
@@ -211,6 +211,9 @@ class StockData:
             # Drop the symbol column
             df.drop(columns=['symbol'], inplace=True)
 
+            # Drop null values before saving
+            df.dropna(inplace=True)
+
             # Save processed data to the Temp directory
             processed_file = self.processed_file
             df.to_csv(processed_file, index=False)
@@ -251,7 +254,7 @@ class StockData:
             else:
                 self.logger.warning("Encoder or scaler file not found. Initializing new instances.")
                 self.label_encoder = LabelEncoder()
-                self.scaler = StandardScaler()
+                self.scaler = MinMaxScaler()
         except Exception as e:
             self.logger.error(f"Error loading encoder and scaler: {e}")
             raise

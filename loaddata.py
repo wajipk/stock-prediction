@@ -166,6 +166,10 @@ class StockData:
             # Encode the symbol column
             df['symbol_encoded'] = self.label_encoder.fit_transform(df['symbol'])
 
+            # Save the label encoder
+            joblib.dump(self.label_encoder, self.encoder_file)
+            self.logger.info(f"Label encoder saved at {self.encoder_file}.")
+
             # Save complete symbol mapping
             symbol_mapping = pd.DataFrame({
                 'symbol': df['symbol'],
@@ -188,7 +192,11 @@ class StockData:
             df[features + [f'target_day{i}' for i in range(1, 31)]] = self.scaler.fit_transform(
                 df[features + [f'target_day{i}' for i in range(1, 31)]]
             )
-
+            
+            # Save the scaler
+            joblib.dump(self.scaler, self.scaler_file)
+            self.logger.info(f"Scaler saved at {self.scaler_file}.")
+            
             # Update scaled values in the symbol mapping
             scaled_mapping = df[['symbol_encoded', 'symbol']].drop_duplicates().rename(
                 columns={'symbol_encoded': 'symbol_encoded_scaled'}

@@ -22,8 +22,8 @@ class StockData:
             os.makedirs(self.temp_directory)
 
         self.processed_file = os.path.join(self.temp_directory, 'trade_preprocessed_data.csv')
-        self.encoder_file = os.path.join(self.data_path, 'label_encoder.pkl')
-        self.scaler_file = os.path.join(self.data_path, 'scaler.pkl')
+        self.encoder_file = os.path.join(self.temp_directory, 'label_encoder.pkl')
+        self.scaler_file = os.path.join(self.temp_directory, 'scaler.pkl')
 
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class StockData:
             symbol_mapping = symbol_mapping.merge(scaled_mapping, on='symbol', how='left')
 
             # Save updated symbol mapping
-            mapping_file = os.path.join(self.data_path, 'symbol_mapping_complete.csv')
+            mapping_file = os.path.join(self.temp_directory, 'symbol_mapping_complete.csv')
             symbol_mapping.to_csv(mapping_file, index=False)
             self.logger.info(f"Complete symbol mapping saved to {mapping_file}.")
 

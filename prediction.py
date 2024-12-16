@@ -24,7 +24,7 @@ class StockPredictor:
         """
         try:
             # Load the complete mapping file
-            mapping_file = os.path.join(self.stock_data.data_path, 'symbol_mapping_complete.csv')
+            mapping_file = os.path.join(self.stock_data.temp_directory, 'symbol_mapping_complete.csv')
             symbol_mapping = pd.read_csv(mapping_file)
 
             # Get the row corresponding to the symbol

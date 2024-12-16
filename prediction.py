@@ -64,55 +64,67 @@ class StockPredictor:
             # Retrieve the scaled value of the symbol
             scaled_value = self.retrieve_scaled_symbol(symbol)
 
-            # Filter data for the specific symbol (use scaled_value instead of encoded_symbol)
+            # Filter data for the specific symbol
             data = df[df['symbol_encoded'] == scaled_value].copy()
 
             if data.empty:
                 raise ValueError(f"No processed data available for symbol: {symbol}")
 
-            # Check sequence length requirement
+            # Ensure the data is sorted by date
+            data = data.sort_values('date')
+
+            # Get the latest available business date for the symbol
+            latest_date = data['date'].max()
+
+            # Calculate the business date 30 days after the latest available date
+            business_date_30 = self.get_next_business_day(latest_date, days=30)
+
+            # Retrieve target_day30 from the data for the given symbol
+            if 'target_day30' not in data.columns:
+                raise ValueError("'target_day30' column not found in the data. Ensure preprocessing includes this feature.")
+
+            # Extract the target_day30 value
+            target_day30 = data['target_day30'].iloc[-1]
+
+            # Check if the sequence length requirement is met
             seq_length = self.model.input_shape[1]
             if len(data) < seq_length:
                 raise ValueError(f"Insufficient data for symbol {symbol}. "
-                                 f"Need at least {seq_length} data points.")
-
-            # Sort data by date
-            data = data.sort_values('date')
-            maximum_date = data['date'].max()
-            latest_date = maximum_date + BDay(30)
+                                f"Need at least {seq_length} data points.")
 
             # Prepare input sequence for the model
             X = data[features].values[-seq_length:].reshape(1, seq_length, len(features))
 
-            # Generate predictions
+            # Generate predictions using the model
             raw_predictions = self.model.predict(X)
 
             # Initialize the predictions dictionary
             predictions = {}
 
-            # Create dummy array for inverse scaling
+            # Create a dummy array for inverse scaling
             dummy_array = np.zeros((1, len(self.stock_data.scaler.min_)))  # Match the scaler's fitted shape
 
+            # Generate predictions for the next 30 business days
             for i in range(30):
                 period = f'day{i+1}'
 
-                # Get the predicted date (business day only)
+                # Determine the prediction date (only business days)
                 pred_date = self.get_next_business_day(latest_date, days=i+1)
 
-                # Insert prediction in the correct target column
-                target_index = len(features) - 1  # Use the correct target index within scaler dimensions
+                # Insert the prediction into the correct target column
+                target_index = len(features) - 1  # Assuming the target column index matches features' last index
                 dummy_array[0, target_index] = raw_predictions[0][i]
 
-                # Inverse transform to get the unscaled prediction
+                # Apply inverse transformation to get the unscaled prediction
                 unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, target_index]
 
-                # Add to predictions dictionary
+                # Add the prediction to the results dictionary
                 predictions[period] = {
                     'date': pred_date.strftime('%Y-%m-%d'),
                     'predicted_price': float(unscaled_pred)
                 }
 
-            print("Predictions generated successfully.")
+            print(f"Predictions for symbol '{symbol}' generated successfully.")
             return predictions
 
         except Exception as e:

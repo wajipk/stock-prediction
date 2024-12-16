@@ -76,9 +76,6 @@ class StockPredictor:
             # Get the latest available business date for the symbol
             latest_date = data['date'].max()
 
-            # Calculate the business date 30 days after the latest available date
-            business_date_30 = self.get_next_business_day(latest_date, days=30)
-
             # Retrieve target_day30 from the data for the given symbol
             if 'target_day30' not in data.columns:
                 raise ValueError("'target_day30' column not found in the data. Ensure preprocessing includes this feature.")
@@ -93,35 +90,40 @@ class StockPredictor:
                                 f"Need at least {seq_length} data points.")
 
             # Prepare input sequence for the model
-            X = data[features].values[-seq_length:].reshape(1, seq_length, len(features))
+            X = data[features].values[-seq_length:].copy()
+            
+            # Replace the last close value with target_day30
+            X[-1, features.index('close')] = target_day30
+            X = X.reshape(1, seq_length, len(features))
 
             # Generate predictions using the model
             raw_predictions = self.model.predict(X)
 
-            # Initialize the predictions dictionary
-            predictions = {}
-
             # Create a dummy array for inverse scaling
             dummy_array = np.zeros((1, len(self.stock_data.scaler.min_)))  # Match the scaler's fitted shape
 
-            # Generate predictions for the next 30 business days
+            # Initialize the current date as 30 business days after the latest available date
+            current_date = self.get_next_business_day(latest_date, days=30)
+
+            # Generate predictions for the next 30 business days starting from 30 business days after the latest date
+            predictions = {}
             for i in range(30):
                 period = f'day{i+1}'
 
-                # Determine the prediction date (only business days)
-                pred_date = self.get_next_business_day(latest_date, days=i+1)
+                # Determine the next business day
+                current_date = self.get_next_business_day(current_date, days=1)
 
-                # Insert the prediction into the correct target column
-                target_index = len(features) - 1  # Assuming the target column index matches features' last index
+                # Insert the prediction into the dummy array for inverse scaling
+                target_index = len(features) - 1
                 dummy_array[0, target_index] = raw_predictions[0][i]
 
                 # Apply inverse transformation to get the unscaled prediction
                 unscaled_pred = self.stock_data.scaler.inverse_transform(dummy_array)[0, target_index]
 
-                # Add the prediction to the results dictionary
+                # Add the prediction directly to the results dictionary
                 predictions[period] = {
-                    'date': pred_date.strftime('%Y-%m-%d'),
-                    'predicted_price': float(unscaled_pred)
+                    'date': current_date.strftime('%Y-%m-%d'),
+                    'price': float(unscaled_pred)
                 }
 
             print(f"Predictions for symbol '{symbol}' generated successfully.")

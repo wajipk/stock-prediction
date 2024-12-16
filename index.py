@@ -41,7 +41,7 @@ def main():
         if args.plot == 1:
             print("Generating prediction plot...")
             dates = [prediction['date'] for prediction in predictions.values()]
-            prices = [prediction['predicted_price'] for prediction in predictions.values()]
+            prices = [prediction['price'] for prediction in predictions.values()]
 
             plt.plot(dates, prices)
             plt.xlabel('Prediction Date')

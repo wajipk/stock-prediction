@@ -1,0 +1,167 @@
+{
+    "lstm": {
+        "name": "LSTM Network",
+        "metrics": {
+            "mse": 8.361456337848587,
+            "rmse": 2.8916182904817482,
+            "mae": 2.2609445773230656,
+            "mape": 8.105126013507721,
+            "r2": -0.8861275103317641
+        },
+        "training_time": 30.41773009300232,
+        "val_loss": 9.556232452392578,
+        "train_loss": 2.326561212539673,
+        "is_dl_model": true,
+        "model_path": "models\\FLYNG\\lstm_model.keras"
+    },
+    "bilstm": {
+        "name": "Bidirectional LSTM",
+        "metrics": {
+            "mse": 426.62067526147734,
+            "rmse": 20.654797875105857,
+            "mae": 20.55164651552836,
+            "mape": 77.18993153532807,
+            "r2": -95.23455048669508
+        },
+        "training_time": 19.489253282546997,
+        "val_loss": 10.936283111572266,
+        "train_loss": 2.543309211730957,
+        "is_dl_model": true,
+        "model_path": "models\\FLYNG\\bilstm_model.keras"
+    },
+    "gru": {
+        "name": "GRU Network",
+        "metrics": {
+            "mse": 527.9106835274059,
+            "rmse": 22.976307003681118,
+            "mae": 22.886622317764495,
+            "mape": 86.03867814432962,
+            "r2": -118.08294715263473
+        },
+        "training_time": 14.0120849609375,
+        "val_loss": 16.37796401977539,
+        "train_loss": 3.972381830215454,
+        "is_dl_model": true,
+        "model_path": "models\\FLYNG\\gru_model.keras"
+    },
+    "cnn_lstm": {
+        "name": "CNN-LSTM Hybrid",
+        "metrics": {
+            "mse": 492.17926621533775,
+            "rmse": 22.185113617363733,
+            "mae": 22.092801582283446,
+            "mape": 83.03719067256196,
+            "r2": -110.02286689240856
+        },
+        "training_time": 9.297393560409546,
+        "val_loss": 11.655351638793945,
+        "train_loss": 3.794987916946411,
+        "is_dl_model": true,
+        "model_path": "models\\FLYNG\\cnn_lstm_model.keras"
+    },
+    "advanced": {
+        "name": "Advanced Multi-Branch Model",
+        "metrics": {
+            "mse": 609.8050393259987,
+            "rmse": 24.69423089156653,
+            "mae": 24.603031063874564,
+            "mape": 92.5071884010437,
+            "r2": -136.55618807759626
+        },
+        "training_time": 33.606067419052124,
+        "val_loss": 160.74908447265625,
+        "train_loss": 62.95020294189453,
+        "is_dl_model": true,
+        "model_path": "models\\FLYNG\\advanced_model.keras"
+    },
+    "random_forest": {
+        "name": "Random Forest",
+        "metrics": {
+            "mse": 11.816569579652766,
+            "rmse": 3.4375237569583086,
+            "mae": 2.9123999999999977,
+            "mape": 10.578436148399442,
+            "r2": -1.665511372827087
+        },
+        "training_time": 20.151756286621094,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FLYNG\\random_forest_model.pkl"
+    },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "metrics": {
+            "mse": 8.542393674230974,
+            "rmse": 2.922737359776101,
+            "mae": 2.248572218522993,
+            "mape": 8.369906284674805,
+            "r2": -0.9269422768039866
+        },
+        "training_time": 19.90883755683899,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FLYNG\\gradient_boosting_model.pkl"
+    },
+    "xgboost": {
+        "name": "XGBoost",
+        "metrics": {
+            "mse": 5.737202557984769,
+            "rmse": 2.3952458241242733,
+            "mae": 1.8586990886264374,
+            "mape": 6.937404862586385,
+            "r2": -0.29416397571539843
+        },
+        "training_time": 4.422328948974609,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FLYNG\\xgboost_model.pkl"
+    },
+    "lightgbm": {
+        "name": "LightGBM",
+        "metrics": {
+            "mse": 6.85061346869162,
+            "rmse": 2.617367660205883,
+            "mae": 1.9738894430770968,
+            "mape": 7.103276990311727,
+            "r2": -0.5453205762087612
+        },
+        "training_time": 0.8724958896636963,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FLYNG\\lightgbm_model.pkl"
+    },
+    "svr": {
+        "name": "Support Vector Regression",
+        "metrics": {
+            "mse": 65.20754889112294,
+            "rmse": 8.075119125506628,
+            "mae": 7.874673978806673,
+            "mape": 29.389686781023077,
+            "r2": -13.709130428407635
+        },
+        "training_time": 0.05121731758117676,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FLYNG\\svr_model.pkl"
+    },
+    "elastic_net": {
+        "name": "Elastic Net Regression",
+        "metrics": {
+            "mse": 110.8424143031349,
+            "rmse": 10.52817241040129,
+            "mae": 10.329577923628237,
+            "mape": 38.50720820131919,
+            "r2": -24.003171514799288
+        },
+        "training_time": 0.010173797607421875,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FLYNG\\elastic_net_model.pkl"
+    }
+}

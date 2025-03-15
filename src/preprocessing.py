@@ -210,6 +210,9 @@ def add_basic_indicators(df):
     # Store original date column for preserving all data
     dates = df['date'].copy()
     
+    # Small constant to avoid division by zero
+    epsilon = 1e-10
+    
     # Basic Moving Averages - use smaller windows for limited data
     df['MA5'] = df['close'].rolling(window=min(5, len(df) // 2 if len(df) > 4 else 2)).mean()
     df['MA10'] = df['close'].rolling(window=min(10, len(df) // 2 if len(df) > 6 else 3)).mean()
@@ -227,7 +230,8 @@ def add_basic_indicators(df):
     loss = -delta.where(delta < 0, 0)
     avg_gain = gain.rolling(window=rsi_window).mean()
     avg_loss = loss.rolling(window=rsi_window).mean()
-    rs = avg_gain / avg_loss.replace(0, 0.001)  # Avoid division by zero
+    # Safer division using epsilon
+    rs = avg_gain / (avg_loss + epsilon)
     df['RSI'] = 100 - (100 / (1 + rs))
     
     # Price change
@@ -248,21 +252,12 @@ def add_basic_indicators(df):
         else:
             df[indicator] = df['close'].rolling(window=min(20, len(df) // 2 if len(df) > 10 else 5)).mean()
     
-    # Add calendar features
-    df['day_of_week'] = df['date'].dt.dayofweek
-    df['month'] = df['date'].dt.month
-    df['quarter'] = df['date'].dt.quarter
+    # Handle NaN values by interpolation and then forward-filling any remaining
+    df = df.interpolate(method='linear', limit_direction='both').ffill().bfill()
     
-    # Handle NaN values - forward fill first, then backward fill, then fill with zeros
-    # This ensures we don't lose any rows
-    df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
-    
-    # CRITICAL: If we somehow still have NaNs (unlikely), replace them with zeros instead of dropping rows
-    if df.isna().any().any():
-        print(f"Warning: Still found NaN values in data after filling methods. Replacing with zeros.")
-        df = df.fillna(0)
-    
-    print(f"Added basic technical indicators. Data has {len(df)} rows.")
+    # Final check for infinity values
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.fillna(0)  # Fill remaining NaNs with zeros
     
     return df
 
@@ -331,7 +326,9 @@ def add_advanced_technical_indicators(df):
     avg_gain = gain.rolling(window=14).mean()
     avg_loss = loss.rolling(window=14).mean()
     
-    rs = avg_gain / avg_loss.replace(0, 0.001)  # Avoid division by zero
+    # Use a safer division approach with small epsilon
+    epsilon = 1e-10  # Small constant to avoid division by zero
+    rs = avg_gain / (avg_loss + epsilon)  # Add epsilon to avoid division by zero
     df['RSI'] = 100 - (100 / (1 + rs))
     
     # RSI divergence
@@ -356,18 +353,19 @@ def add_advanced_technical_indicators(df):
     df['BB_upper'] = df['BB_middle'] + (df['BB_std'] * 2)
     df['BB_lower'] = df['BB_middle'] - (df['BB_std'] * 2)
     
-    # Bollinger Band Width - measure of volatility
-    df['BB_width'] = (df['BB_upper'] - df['BB_lower']) / df['BB_middle'].replace(0, 0.001)
+    # Bollinger Band Width - measure of volatility - with safety against divide by zero
+    df['BB_width'] = (df['BB_upper'] - df['BB_lower']) / (df['BB_middle'] + epsilon)
     
-    # Bollinger %B - position within Bollinger Bands
+    # Bollinger %B - position within Bollinger Bands - with safety
     bb_range = df['BB_upper'] - df['BB_lower']
-    bb_range = bb_range.replace(0, 0.001)  # Avoid division by zero
+    bb_range = bb_range + epsilon  # Add small value to avoid division by zero
     df['BB_B'] = (df['close'] - df['BB_lower']) / bb_range
     
     # Volatility
     df['volatility_10'] = df['close'].rolling(window=10).std()
     df['volatility_20'] = df['close'].rolling(window=20).std()
-    df['volatility_ratio'] = df['volatility_10'] / df['volatility_20'].replace(0, 0.001)
+    # Add epsilon to avoid division by zero
+    df['volatility_ratio'] = df['volatility_10'] / (df['volatility_20'] + epsilon)
     
     # Price Rate of Change - momentum indicators
     df['price_roc_5'] = df['close'].pct_change(periods=5) * 100
@@ -388,21 +386,21 @@ def add_advanced_technical_indicators(df):
     df['plus_dm'] = np.where((df['up_move'] > df['down_move']) & (df['up_move'] > 0), df['up_move'], 0)
     df['minus_dm'] = np.where((df['down_move'] > df['up_move']) & (df['down_move'] > 0), df['down_move'], 0)
     
-    # Avoid division by zero
-    atr_nonzero = df['atr'].replace(0, 0.001)
+    # Avoid division by zero with epsilon
+    atr_nonzero = df['atr'] + epsilon
     df['plus_di'] = 100 * df['plus_dm'].rolling(window=14).mean() / atr_nonzero
     df['minus_di'] = 100 * df['minus_dm'].rolling(window=14).mean() / atr_nonzero
     
     # ADX calculation - avoid division by zero
-    di_sum = df['plus_di'] + df['minus_di']
-    di_sum = di_sum.replace(0, 0.001)
+    di_sum = df['plus_di'] + df['minus_di'] + epsilon
     df['dx'] = 100 * abs(df['plus_di'] - df['minus_di']) / di_sum
     df['ADX'] = df['dx'].rolling(window=14).mean()
     
     # Volume indicators
     df['volume_ma10'] = df['volume'].rolling(window=10).mean()
     df['volume_ma20'] = df['volume'].rolling(window=20).mean()
-    df['volume_ratio'] = df['volume'] / df['volume_ma10'].replace(0, 0.001)
+    # Add epsilon to avoid division by zero  
+    df['volume_ratio'] = df['volume'] / (df['volume_ma10'] + epsilon)
     
     # On-Balance Volume (OBV)
     df['OBV'] = (np.sign(df['close'].diff()) * df['volume']).fillna(0).cumsum()
@@ -412,20 +410,17 @@ def add_advanced_technical_indicators(df):
     df['momentum_10'] = df['close'] - df['close'].shift(10)
     
     # Chaikin Money Flow
-    high_low_diff = df['high'] - df['low']
-    high_low_diff = high_low_diff.replace(0, 0.001)  # Avoid division by zero
+    high_low_diff = df['high'] - df['low'] + epsilon  # Add epsilon to avoid division by zero
     df['MFM'] = ((df['close'] - df['low']) - (df['high'] - df['close'])) / high_low_diff
     df['MFV'] = df['MFM'] * df['volume']
-    vol_sum = df['volume'].rolling(window=20).sum()
-    vol_sum = vol_sum.replace(0, 0.001)  # Avoid division by zero
+    vol_sum = df['volume'].rolling(window=20).sum() + epsilon  # Add epsilon to avoid division by zero
     df['CMF'] = df['MFV'].rolling(window=20).sum() / vol_sum
     
     # Stochastic Oscillator
     df['lowest_low'] = df['low'].rolling(window=14).min()
     df['highest_high'] = df['high'].rolling(window=14).max()
-    # Avoid division by zero
-    high_low_range = df['highest_high'] - df['lowest_low']
-    high_low_range = high_low_range.replace(0, 0.001)
+    # Avoid division by zero with epsilon
+    high_low_range = df['highest_high'] - df['lowest_low'] + epsilon
     df['%K'] = 100 * ((df['close'] - df['lowest_low']) / high_low_range)
     df['%D'] = df['%K'].rolling(window=3).mean()
     
@@ -433,16 +428,13 @@ def add_advanced_technical_indicators(df):
     df['tp'] = (df['high'] + df['low'] + df['close']) / 3
     df['tp_ma'] = df['tp'].rolling(window=20).mean()
     df['tp_dev'] = (df['tp'] - df['tp_ma']).abs()
-    df['tp_dev_ma'] = df['tp_dev'].rolling(window=20).mean()
-    # Avoid division by zero
-    tp_dev_nonzero = df['tp_dev_ma'].replace(0, 0.001)
-    df['CCI'] = (df['tp'] - df['tp_ma']) / (0.015 * tp_dev_nonzero)
+    df['tp_dev_ma'] = df['tp_dev'].rolling(window=20).mean() + epsilon  # Add epsilon to avoid division by zero
+    df['CCI'] = (df['tp'] - df['tp_ma']) / (0.015 * df['tp_dev_ma'])
     
     # Price vs Volume relationship
     df['price_vol_corr'] = df['close'].rolling(window=10).corr(df['volume'])
     
     # Ichimoku Cloud components - advanced trend indicator, but these use future data shifts
-    # We'll calculate these but not let them affect our most recent data
     df['tenkan_sen'] = (df['high'].rolling(window=9).max() + df['low'].rolling(window=9).min()) / 2
     df['kijun_sen'] = (df['high'].rolling(window=26).max() + df['low'].rolling(window=26).min()) / 2
     
@@ -603,6 +595,64 @@ def add_technical_indicators(df):
     return add_advanced_technical_indicators(df)
 
 
+def clean_and_validate_data(df):
+    """
+    Clean data by removing or replacing infinity, NaN, and extremely large values
+    that can cause training errors
+    
+    Args:
+        df (pd.DataFrame): DataFrame with technical indicators
+        
+    Returns:
+        pd.DataFrame: Cleaned DataFrame
+    """
+    if df is None or len(df) == 0:
+        print("No data to clean")
+        return df
+    
+    original_shape = df.shape
+    print(f"Data shape before cleaning: {original_shape}")
+    
+    # Replace infinities with NaN first
+    df = df.replace([np.inf, -np.inf], np.nan)
+    
+    # Check for any columns with all NaN values and report them
+    null_columns = df.columns[df.isna().all()].tolist()
+    if null_columns:
+        print(f"WARNING: These columns contain all NaN values and will be dropped: {null_columns}")
+        df = df.drop(columns=null_columns)
+    
+    # Check for extremely large values and cap them
+    for col in df.select_dtypes(include=np.number).columns:
+        # Get the 5th and 95th percentiles
+        percentile_95 = df[col].quantile(0.95)
+        percentile_5 = df[col].quantile(0.05)
+        
+        # Compute the IQR-based bounds
+        iqr = percentile_95 - percentile_5
+        upper_bound = percentile_95 + 3 * iqr
+        lower_bound = percentile_5 - 3 * iqr
+        
+        # Check for extreme values
+        extreme_count = ((df[col] > upper_bound) | (df[col] < lower_bound)).sum()
+        if extreme_count > 0:
+            print(f"Capping {extreme_count} extreme values in column '{col}'")
+            df[col] = df[col].clip(lower=lower_bound, upper=upper_bound)
+    
+    # For remaining NaNs, interpolate where possible
+    df = df.interpolate(method='linear', limit_direction='both')
+    
+    # If any NaNs are still present, drop those rows
+    remaining_nulls = df.isna().sum().sum()
+    if remaining_nulls > 0:
+        print(f"Dropping {remaining_nulls} NaN values that couldn't be interpolated")
+        df = df.dropna()
+    
+    print(f"Data shape after cleaning: {df.shape}, removed {original_shape[0] - df.shape[0]} rows")
+    
+    return df
+
+
 def prepare_train_test_data(df, target_column='close', window_size=10, test_size=0.2, prediction_days=5):
     """
     Prepare data for model training and testing
@@ -631,6 +681,9 @@ def prepare_train_test_data(df, target_column='close', window_size=10, test_size
         # Ensure data is sorted by date
         df = df.sort_values('date', ascending=True).reset_index(drop=True)
         
+        # Clean and validate data to prevent infinity or extremely large values
+        df = clean_and_validate_data(df)
+        
         # Print diagnostic info
         print(f"Preparing data with {len(df)} rows, window_size={window_size}, prediction_days={prediction_days}")
         
@@ -651,11 +704,65 @@ def prepare_train_test_data(df, target_column='close', window_size=10, test_size
         features = df.columns.difference(['date', 'target'])
         print(f"Selected {len(features)} features: {', '.join(features[:5])}...")
         
-        # Scale the data
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(df[features])
-        scaled_target = df['target'].values
-        
+        # Scale the data with extra safety checks
+        try:
+            # Final check for any infinity or NaN values
+            feature_data = df[features].copy()
+            
+            # Replace any remaining inf values
+            feature_data = feature_data.replace([np.inf, -np.inf], np.nan)
+            
+            # Check if any NaN values remain after all previous cleaning
+            if feature_data.isna().any().any():
+                print("WARNING: NaN values found in features after cleaning, filling with zeros")
+                feature_data = feature_data.fillna(0)
+            
+            # Scale the data
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            
+            # Add try-except for scaling specifically
+            try:
+                scaled_data = scaler.fit_transform(feature_data)
+            except Exception as scaling_error:
+                print(f"Error during scaling: {scaling_error}")
+                print("Using a robust scaling approach as fallback")
+                
+                # Fallback to manual min-max scaling
+                for col in feature_data.columns:
+                    col_min = feature_data[col].min()
+                    col_max = feature_data[col].max()
+                    col_range = col_max - col_min
+                    if col_range > 0:
+                        feature_data[col] = (feature_data[col] - col_min) / col_range
+                    else:
+                        feature_data[col] = 0  # If the range is 0, set column to 0
+                
+                scaled_data = feature_data.values
+                
+                # Create a scaler object with the manually set ranges
+                scaler = MinMaxScaler()
+                scaler.fit(feature_data)
+            
+            # Get the target values
+            scaled_target = df['target'].values
+            
+        except Exception as e:
+            print(f"Error during data scaling: {e}")
+            print("Using simplified scaling as a last resort")
+            
+            # Last resort: use only numeric columns and clip extreme values
+            numeric_features = df.select_dtypes(include=np.number).columns.difference(['target'])
+            features = numeric_features
+            feature_data = df[features].clip(-1e6, 1e6)  # Clip to reasonable range
+            
+            # Replace any remaining inf values
+            feature_data = feature_data.replace([np.inf, -np.inf], 0)
+            
+            # Create a very simple scaler
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            scaled_data = scaler.fit_transform(feature_data)
+            scaled_target = df['target'].values
+
         # Create sequences with aligned indexes
         X, y = [], []
         

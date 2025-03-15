@@ -1,0 +1,9 @@
+{
+    "best_model_type": "lightgbm",
+    "model_name": "LightGBM",
+    "priority_metric": "mape",
+    "metric_value": 22.489872098094345,
+    "model_path": "models\\ACPL\\lightgbm_model.pkl",
+    "is_dl_model": false,
+    "selection_date": "2025-03-15 21:47:25"
+}

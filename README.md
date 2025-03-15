@@ -10,49 +10,6 @@ Install the required packages:
 pip install -r requirements.txt
 ```
 
-## Scripts
-
-The repository contains the following scripts:
-
-- `main.py` - The main stock prediction pipeline for a single company
-- `run_all_companies.py` - Script to run predictions for all Islamic companies
-
-## Running Predictions for All Companies
-
-To run predictions for all Islamic companies listed on the API:
-
-```bash
-python run_all_companies.py
-```
-
-### Optional parameters:
-
-- `--skip_training` - Skip model training and use existing models
-- `--prediction_days` - Number of days ahead to predict (default: 5)
-- `--threshold` - Threshold percentage for significant movements (default: 2.0)
-- `--max_retries` - Maximum number of retry attempts for failed companies (default: 2)
-- `--start_index` - Index to start from in the company list (for resuming interrupted runs)
-- `--market_adjustment` - Market trend adjustment factor (default: 0.03, range: 0.0-0.1)
-- `--no_market_trends` - Skip applying market trend adjustments
-
-Example:
-
-```bash
-python run_all_companies.py --skip_training --prediction_days 7 --threshold 1.5 --market_adjustment 0.05
-```
-
-### Resuming Failed Runs
-
-If the process is interrupted or some companies fail, you can resume:
-
-```bash
-# Resume from a specific index
-python run_all_companies.py --start_index 50
-
-# Run only failed companies from a previous run
-cat failed_companies.txt | xargs -I{} python main.py --symbol {}
-```
-
 ## Overwriting Predictions
 
 The prediction reward system now allows overwriting existing predictions. You can use this functionality in your code by setting the `overwrite` parameter to `True` when calling the `save_prediction` method:
@@ -172,47 +129,95 @@ For more details on the financial rules system, see [README_FINANCIAL_RULES.md](
 
 ## Features
 
-- Historical stock data retrieval with technical indicators
-- Advanced deep learning model architecture for accurate prediction
-- Technical indicator-based data enrichment
-- Multiple prediction horizons
-- Visualization of predictions with confidence intervals
-- Identification of significant price movements
-- Market trend analysis for enhanced predictions
-- Prediction reward system for continuous model improvement
-- Support for custom model parameters and training configurations
+- Advanced deep learning model using multi-branch architecture (CNN, LSTM, GRU)
+- Technical indicators calculation
+- Adjustment for corporate actions (dividends, splits, etc.)
+- Market trend analysis and adjustment
+- Prediction confidence intervals
+- Self-learning reward system that improves over time
+- Reality check validation for predictions
+- Support for both legacy and advanced models
+- Detailed visualization of predictions
 
-## New Feature: Prediction Reward System
+## Self-Learning Prediction System
 
-The stock prediction model now includes a reward system that tracks the accuracy of predictions over time and helps the model learn from past predictions:
+The stock prediction model includes a reward system that tracks prediction accuracy over time to improve future forecasts:
 
-- Stores predictions in a CSV file with dates
-- Evaluates prediction accuracy when actual prices become available
-- Adjusts the model's approach when accuracy is below threshold
-- Avoids duplicate predictions for the same date
-- Provides suggestions for model parameter adjustments based on historical performance
+1. When predictions are made, they are stored in a history file with the predicted price
+2. During the next training cycle, previous predictions are automatically compared with actual prices
+3. The model learns from its mistakes by giving higher weight to training examples where it performed poorly
+4. Over time, the model adjusts its parameters based on observed prediction accuracy
+5. The reward system can also suggest adjustments to hyperparameters like learning rate
 
-### How the Reward System Works
-
-1. **Prediction Tracking**: When a prediction is made, it's saved along with the date in a CSV file.
-
-2. **Accuracy Evaluation**: During subsequent runs, the system checks for existing predictions and updates them with actual prices when available.
-
-3. **Model Adjustment**: If prediction accuracy is below the specified threshold, the system will suggest adjustments to model parameters like learning rate, window size, and smoothing factor.
-
-4. **Performance Analysis**: The system provides analytics about prediction accuracy over time, including trend analysis and success rate.
-
-### Command Line Parameters
-
-| Parameter | Description |
-|-----------|-------------|
-| `--reward_threshold` | Threshold for determining if a prediction is accurate (default: 0.05 or 5%) |
-| `--no_reward_system` | Skip using the reward system |
-
-### Example
+This creates a feedback loop that allows the model to continuously improve its predictions based on real-world performance. You can run the test script to see this in action:
 
 ```bash
-python main.py --symbol AAPL --reward_threshold 0.03 
+python test_update_predictions.py --symbol YOUR_STOCK_SYMBOL
 ```
 
-This will run the pipeline with the reward system enabled and set the accuracy threshold to 3%.
+## Usage
+
+To run the pipeline with default settings:
+
+```bash
+python main.py --symbol AAPL
+```
+
+## Multi-Model Selection for Stock Prediction
+
+The system now includes a powerful multi-model selection feature that automatically determines the best model for each stock:
+
+### Available Models
+
+The system can now train and evaluate multiple types of models for each stock:
+
+#### Deep Learning Models:
+- **LSTM Network**: Standard Long Short-Term Memory network
+- **Bidirectional LSTM**: LSTM with bidirectional layers
+- **GRU Network**: Gated Recurrent Unit network
+- **CNN-LSTM Hybrid**: Convolutional Neural Network combined with LSTM
+- **Advanced Multi-Branch Model**: Complex model combining CNN, LSTM, and GRU branches
+
+#### Traditional Machine Learning Models:
+- **Random Forest**: Ensemble learning method using decision trees
+- **Gradient Boosting**: Boosting algorithm for regression
+- **XGBoost**: Optimized gradient boosting implementation
+- **LightGBM**: Gradient boosting framework using tree-based learning
+- **Support Vector Regression**: Regression using support vector machines
+- **Elastic Net**: Linear regression with L1 and L2 regularization
+
+### How It Works
+
+1. The system trains multiple model types on the same stock data
+2. Each model is evaluated using several metrics (MSE, RMSE, MAE, MAPE, R²)
+3. The best model is selected based on the chosen priority metric (default: MAPE)
+4. A visualization comparing all models is generated
+5. The best model is saved and used for future predictions for that stock
+
+### Benefits
+
+- Different stocks behave differently and require different modeling approaches
+- Some stocks may follow linear patterns while others have complex non-linear relationships
+- Traditional ML models may work better for stable, established companies
+- Deep learning models often perform better for volatile or cyclical stocks
+- This approach finds the optimal model for each individual stock
+
+### Using Multi-Model Selection
+
+The system automatically uses model selection by default to find the best model for each stock. You can customize the behavior with the following options:
+
+```bash
+# Model selection is enabled by default (no need for additional flags)
+python main.py --symbol TSLA
+
+# Try specific models only
+python main.py --symbol MSFT --models_to_try lstm xgboost random_forest
+
+# Change priority metric (default is mape)
+python main.py --symbol AAPL --priority_metric r2
+
+# Disable model selection and use only the default model
+python main.py --symbol GOOGL --no_model_selection
+```
+
+The system will generate a visualization comparing all models in `models/{symbol}/{symbol}_model_comparison.png` and store information about the best model in `models/{symbol}/best_model_info.json`.

@@ -1,0 +1,167 @@
+{
+    "lstm": {
+        "name": "LSTM Network",
+        "metrics": {
+            "mse": 0.4378062322535529,
+            "rmse": 0.6616692770966118,
+            "mae": 0.44023021552297803,
+            "mape": 11.900331503657515,
+            "r2": -0.7580471285658961
+        },
+        "training_time": 29.32978129386902,
+        "val_loss": 0.45754575729370117,
+        "train_loss": 0.06367440521717072,
+        "is_dl_model": true,
+        "model_path": "models\\FPJM\\lstm_model.keras"
+    },
+    "bilstm": {
+        "name": "Bidirectional LSTM",
+        "metrics": {
+            "mse": 0.32013730463020673,
+            "rmse": 0.5658067732275806,
+            "mae": 0.33674993846151563,
+            "mape": 8.977344991076748,
+            "r2": -0.2855378194479621
+        },
+        "training_time": 26.40955400466919,
+        "val_loss": 0.4250841438770294,
+        "train_loss": 0.052768558263778687,
+        "is_dl_model": true,
+        "model_path": "models\\FPJM\\bilstm_model.keras"
+    },
+    "gru": {
+        "name": "GRU Network",
+        "metrics": {
+            "mse": 0.5411002686200307,
+            "rmse": 0.7355951798510039,
+            "mae": 0.5177545861403148,
+            "mape": 14.300034774183976,
+            "r2": -1.1728328731573465
+        },
+        "training_time": 13.44225525856018,
+        "val_loss": 0.4375413656234741,
+        "train_loss": 0.09053685516119003,
+        "is_dl_model": true,
+        "model_path": "models\\FPJM\\gru_model.keras"
+    },
+    "cnn_lstm": {
+        "name": "CNN-LSTM Hybrid",
+        "metrics": {
+            "mse": 0.42555864476372396,
+            "rmse": 0.6523485607891872,
+            "mae": 0.4089946558740404,
+            "mape": 10.92659579632939,
+            "r2": -0.7088659282263738
+        },
+        "training_time": 9.822192430496216,
+        "val_loss": 0.5247415900230408,
+        "train_loss": 0.11246055364608765,
+        "is_dl_model": true,
+        "model_path": "models\\FPJM\\cnn_lstm_model.keras"
+    },
+    "advanced": {
+        "name": "Advanced Multi-Branch Model",
+        "metrics": {
+            "mse": 6.945189907203275,
+            "rmse": 2.635372821291757,
+            "mae": 2.58770406925016,
+            "mape": 78.33262809599582,
+            "r2": -26.888984382095835
+        },
+        "training_time": 32.73670268058777,
+        "val_loss": 2.240919351577759,
+        "train_loss": 0.8265456557273865,
+        "is_dl_model": true,
+        "model_path": "models\\FPJM\\advanced_model.keras"
+    },
+    "random_forest": {
+        "name": "Random Forest",
+        "metrics": {
+            "mse": 0.40545557829895146,
+            "rmse": 0.6367539385814205,
+            "mae": 0.46292209215167485,
+            "mape": 12.821841652541288,
+            "r2": -0.6281404024798731
+        },
+        "training_time": 18.675302982330322,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FPJM\\random_forest_model.pkl"
+    },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "metrics": {
+            "mse": 0.2634784887096274,
+            "rmse": 0.5133015572834622,
+            "mae": 0.3293999701017915,
+            "mape": 9.250443052796015,
+            "r2": -0.05801965890375538
+        },
+        "training_time": 18.62733030319214,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FPJM\\gradient_boosting_model.pkl"
+    },
+    "xgboost": {
+        "name": "XGBoost",
+        "metrics": {
+            "mse": 0.2819619171468741,
+            "rmse": 0.5310008636027573,
+            "mae": 0.33666728244887456,
+            "mape": 9.29899560499263,
+            "r2": -0.13224139422006664
+        },
+        "training_time": 4.451803922653198,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FPJM\\xgboost_model.pkl"
+    },
+    "lightgbm": {
+        "name": "LightGBM",
+        "metrics": {
+            "mse": 0.5478072345573956,
+            "rmse": 0.7401400101044366,
+            "mae": 0.5936444666053318,
+            "mape": 16.773837137046506,
+            "r2": -1.1997652494894058
+        },
+        "training_time": 0.8513767719268799,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FPJM\\lightgbm_model.pkl"
+    },
+    "svr": {
+        "name": "Support Vector Regression",
+        "metrics": {
+            "mse": 1.132056428711933,
+            "rmse": 1.0639814043073934,
+            "mae": 0.8988053563966533,
+            "mape": 25.816796911651007,
+            "r2": -3.545866201189569
+        },
+        "training_time": 0.020544052124023438,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FPJM\\svr_model.pkl"
+    },
+    "elastic_net": {
+        "name": "Elastic Net Regression",
+        "metrics": {
+            "mse": 2.144706307697741,
+            "rmse": 1.4644815832565943,
+            "mae": 1.3768356643356643,
+            "mape": 40.76807409758471,
+            "r2": -7.61224552802053
+        },
+        "training_time": 0.0,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\FPJM\\elastic_net_model.pkl"
+    }
+}

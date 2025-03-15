@@ -1,0 +1,9 @@
+{
+    "best_model_type": "svr",
+    "model_name": "Support Vector Regression",
+    "priority_metric": "mape",
+    "metric_value": 1.215942159040751,
+    "model_path": "models\\FCL\\svr_model.pkl",
+    "is_dl_model": false,
+    "selection_date": "2025-03-15 18:18:31"
+}

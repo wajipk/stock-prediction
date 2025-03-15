@@ -1,0 +1,9 @@
+{
+    "best_model_type": "lstm",
+    "model_name": "LSTM Network",
+    "priority_metric": "mape",
+    "metric_value": 4.755635170453539,
+    "model_path": "models\\DCL\\lstm_model.keras",
+    "is_dl_model": true,
+    "selection_date": "2025-03-15 18:05:00"
+}

@@ -1,0 +1,9 @@
+{
+    "best_model_type": "elastic_net",
+    "model_name": "Elastic Net Regression",
+    "priority_metric": "mape",
+    "metric_value": 15.402932668665967,
+    "model_path": "models\\GHNI\\elastic_net_model.pkl",
+    "is_dl_model": false,
+    "selection_date": "2025-03-15 18:56:10"
+}

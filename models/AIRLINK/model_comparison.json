@@ -1,0 +1,167 @@
+{
+    "lstm": {
+        "name": "LSTM Network",
+        "metrics": {
+            "mse": 4045.8393777303063,
+            "rmse": 63.60691297123534,
+            "mae": 62.09532146877713,
+            "mape": 31.804724699026554,
+            "r2": -20.272931095606
+        },
+        "training_time": 20.365444898605347,
+        "val_loss": 4161.099609375,
+        "train_loss": 107.40771484375,
+        "is_dl_model": true,
+        "model_path": "models\\AIRLINK\\lstm_model.keras"
+    },
+    "bilstm": {
+        "name": "Bidirectional LSTM",
+        "metrics": {
+            "mse": 35703.76153979331,
+            "rmse": 188.9543901045787,
+            "mae": 188.4575780619515,
+            "mape": 97.5731462954612,
+            "r2": -186.72956318301974
+        },
+        "training_time": 27.310477018356323,
+        "val_loss": 14603.623046875,
+        "train_loss": 1629.9805908203125,
+        "is_dl_model": true,
+        "model_path": "models\\AIRLINK\\bilstm_model.keras"
+    },
+    "gru": {
+        "name": "GRU Network",
+        "metrics": {
+            "mse": 35777.66946894197,
+            "rmse": 189.14985981739972,
+            "mae": 188.66057016346187,
+            "mape": 97.68250023344746,
+            "r2": -187.11816938742132
+        },
+        "training_time": 18.539560079574585,
+        "val_loss": 15025.5068359375,
+        "train_loss": 1685.7261962890625,
+        "is_dl_model": true,
+        "model_path": "models\\AIRLINK\\gru_model.keras"
+    },
+    "cnn_lstm": {
+        "name": "CNN-LSTM Hybrid",
+        "metrics": {
+            "mse": 36045.45021439994,
+            "rmse": 189.85639366215705,
+            "mae": 189.370251690944,
+            "mape": 98.05246416564653,
+            "r2": -188.52615443453243
+        },
+        "training_time": 11.462989091873169,
+        "val_loss": 14692.3193359375,
+        "train_loss": 1667.8787841796875,
+        "is_dl_model": true,
+        "model_path": "models\\AIRLINK\\cnn_lstm_model.keras"
+    },
+    "advanced": {
+        "name": "Advanced Multi-Branch Model",
+        "metrics": {
+            "mse": 36913.106787211495,
+            "rmse": 192.12783969849735,
+            "mae": 191.63405436668128,
+            "mape": 99.22397269388975,
+            "r2": -193.08827288878118
+        },
+        "training_time": 46.26739692687988,
+        "val_loss": 24821.634765625,
+        "train_loss": 5146.21533203125,
+        "is_dl_model": true,
+        "model_path": "models\\AIRLINK\\advanced_model.keras"
+    },
+    "random_forest": {
+        "name": "Random Forest",
+        "metrics": {
+            "mse": 4432.6220505723995,
+            "rmse": 66.5779396690255,
+            "mae": 64.74235533172696,
+            "mape": 33.12294534364827,
+            "r2": -22.306625560500954
+        },
+        "training_time": 22.70568323135376,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\AIRLINK\\random_forest_model.pkl"
+    },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "metrics": {
+            "mse": 4479.6879390616,
+            "rmse": 66.93047093112075,
+            "mae": 64.58312787601713,
+            "mape": 32.972459573047495,
+            "r2": -22.554096927825956
+        },
+        "training_time": 24.110440969467163,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\AIRLINK\\gradient_boosting_model.pkl"
+    },
+    "xgboost": {
+        "name": "XGBoost",
+        "metrics": {
+            "mse": 4480.419268432592,
+            "rmse": 66.935934059611,
+            "mae": 64.79072446187337,
+            "mape": 33.10364106620264,
+            "r2": -22.55794224096491
+        },
+        "training_time": 4.7056334018707275,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\AIRLINK\\xgboost_model.pkl"
+    },
+    "lightgbm": {
+        "name": "LightGBM",
+        "metrics": {
+            "mse": 4323.833096154783,
+            "rmse": 65.75585978568589,
+            "mae": 63.57878793061913,
+            "mape": 32.472341283967175,
+            "r2": -21.734615721448158
+        },
+        "training_time": 0.6660902500152588,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\AIRLINK\\lightgbm_model.pkl"
+    },
+    "svr": {
+        "name": "Support Vector Regression",
+        "metrics": {
+            "mse": 11505.031730999306,
+            "rmse": 107.26151094870566,
+            "mae": 105.92638494508788,
+            "mape": 54.5321994223069,
+            "r2": -59.49319422156841
+        },
+        "training_time": 0.05192923545837402,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\AIRLINK\\svr_model.pkl"
+    },
+    "elastic_net": {
+        "name": "Elastic Net Regression",
+        "metrics": {
+            "mse": 1011.4448341103127,
+            "rmse": 31.803220499036144,
+            "mae": 25.390711225769298,
+            "mape": 12.803131084821123,
+            "r2": -4.31815384996967
+        },
+        "training_time": 0.040688276290893555,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\AIRLINK\\elastic_net_model.pkl"
+    }
+}

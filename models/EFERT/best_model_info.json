@@ -1,0 +1,9 @@
+{
+    "best_model_type": "elastic_net",
+    "model_name": "Elastic Net Regression",
+    "priority_metric": "mape",
+    "metric_value": 3.565837187575322,
+    "model_path": "models\\EFERT\\elastic_net_model.pkl",
+    "is_dl_model": false,
+    "selection_date": "2025-03-15 18:13:45"
+}

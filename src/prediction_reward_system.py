@@ -34,6 +34,10 @@ class PredictionRewardSystem:
         # Set predictions file path in the model directory
         self.predictions_file = os.path.join(self.model_dir, "predictions.csv")
         
+        # Initialize model info
+        self.model_type = "Unknown"
+        self.model_name = "default"
+        
         # Load existing predictions if the file exists
         self.predictions_df = self._load_predictions()
         
@@ -53,7 +57,7 @@ class PredictionRewardSystem:
                 'threshold_met', 'model_version', 'timestamp', 'notes'
             ])
     
-    def save_prediction(self, date, predicted_price, model_version='default', overwrite=False):
+    def save_prediction(self, date, predicted_price, model_version=None, overwrite=False):
         """
         Save a new prediction to the predictions history, or overwrite an existing one
         
@@ -66,6 +70,10 @@ class PredictionRewardSystem:
         Returns:
             bool: True if the prediction was saved, False otherwise
         """
+        # Use class model_name if model_version is not provided
+        if model_version is None:
+            model_version = self.model_name
+        
         # Convert date to string format depending on the type
         if isinstance(date, datetime):
             date_str = date.strftime('%Y-%m-%d')
@@ -360,3 +368,18 @@ class PredictionRewardSystem:
             suggestions['reason'] = 'Recent predictions all missed threshold'
             
         return suggestions 
+
+    def set_model_info(self, model_type, model_name):
+        """
+        Set the model type and name information
+        
+        Args:
+            model_type (str): Type of model (e.g., 'lstm', 'elastic_net')
+            model_name (str): Name of the model (e.g., 'LSTM Network', 'Elastic Net Regression')
+            
+        Returns:
+            None
+        """
+        self.model_type = model_type
+        self.model_name = model_name
+        print(f"Set model info: {model_name} ({model_type})") 

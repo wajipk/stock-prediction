@@ -128,7 +128,7 @@ def calculate_market_trend(market_df, window=5):
     if market_df is None or len(market_df) < window+1:
         print("Not enough market data to calculate trends")
         return {
-            'market_direction': 'unknown',
+            'market_direction': 'sideways',  # Default to sideways when no data
             'market_strength': 0,
             'market_momentum': 0,
             'market_volatility': 0,
@@ -142,16 +142,23 @@ def calculate_market_trend(market_df, window=5):
         print(f"Warning: Error converting 'close' column to float: {e}")
         print("Returning default market trend values")
         return {
-            'market_direction': 'unknown',
+            'market_direction': 'sideways',  # Default to sideways on error
             'market_strength': 0,
             'market_momentum': 0,
             'market_volatility': 0,
             'recent_performance': 0
         }
     
-    # Calculate market direction (bullish/bearish)
+    # Calculate market direction with more nuanced classification
     recent_change = (market_df['close'].iloc[-1] / market_df['close'].iloc[-window-1] - 1) * 100
-    market_direction = 'bullish' if recent_change > 0 else 'bearish'
+    
+    # Define thresholds for sideways market (between -1.5% and +1.5% over the window period)
+    sideways_threshold = 1.5
+    
+    if abs(recent_change) <= sideways_threshold:
+        market_direction = 'sideways'
+    else:
+        market_direction = 'bullish' if recent_change > 0 else 'bearish'
     
     # Calculate market strength (magnitude of trend)
     market_strength = abs(recent_change)
@@ -165,6 +172,32 @@ def calculate_market_trend(market_df, window=5):
     
     # Calculate recent performance (last day)
     recent_performance = market_df['daily_return'].iloc[-1]
+    
+    # Check for range-bound trading (sideways with higher volatility)
+    max_price = market_df['close'].iloc[-window:].max()
+    min_price = market_df['close'].iloc[-window:].min()
+    price_range_pct = (max_price - min_price) / min_price * 100
+    
+    # If price stayed within a narrow range but had significant oscillations, it's sideways
+    if price_range_pct < 3.0 and volatility > 0.5:
+        market_direction = 'sideways'
+        print(f"Detected range-bound trading: {price_range_pct:.2f}% range with {volatility:.2f}% volatility")
+    
+    # Check for mean reversion pattern (significant reversals)
+    reversals = 0
+    direction = None
+    for day in range(-window + 1, 0):
+        current_direction = 'up' if market_df['daily_return'].iloc[day] > 0 else 'down'
+        if direction is not None and current_direction != direction:
+            reversals += 1
+        direction = current_direction
+    
+    # High number of reversals indicates sideways/choppy market
+    if reversals >= window * 0.6:  # If more than 60% of days showed reversals
+        market_direction = 'sideways'
+        print(f"Detected choppy market with {reversals} direction reversals in {window} days")
+    
+    print(f"Market trend: {market_direction.upper()} (change: {recent_change:.2f}%, strength: {market_strength:.2f}%, volatility: {volatility:.2f}%)")
     
     return {
         'market_direction': market_direction,
@@ -185,58 +218,153 @@ def get_market_sentiment_score(market_trend):
         float: Market sentiment score (-1 to 1, where 1 is very bullish)
     """
     # Default neutral sentiment if trend data is not available
-    if not market_trend or market_trend['market_direction'] == 'unknown':
+    if not market_trend:
+        print("Market trend data unavailable, using neutral sentiment (0.0)")
         return 0.0
     
-    # Base score from direction
-    base_score = 0.5 if market_trend['market_direction'] == 'bullish' else -0.5
+    # Handle sideways market differently - force near-neutral sentiment
+    if market_trend['market_direction'] == 'sideways':
+        # Calculate a small sentiment adjustment based on recent momentum
+        # But keep it very close to neutral
+        momentum_adj = np.clip(market_trend['market_momentum'] / 50, -0.05, 0.05)
+        sentiment_score = momentum_adj
+        
+        print(f"Sideways market detected - using near-neutral sentiment: {sentiment_score:.3f}")
+        return sentiment_score
     
-    # Adjust based on strength (0-10% change scales to 0-0.3 adjustment)
-    strength_adj = min(0.3, market_trend['market_strength'] / 30)
+    # Base score from direction - more conservative approach
+    if market_trend['market_direction'] == 'bullish':
+        base_score = 0.15  # Reduced from 0.3 to be much less aggressive
+    elif market_trend['market_direction'] == 'bearish':
+        base_score = -0.15  # Reduced from -0.3 to be much less aggressive
+    else:
+        base_score = 0.0  # Neutral
     
-    # Adjust based on momentum (-3 to +3% daily change scales to -0.1 to +0.1)
-    momentum_adj = np.clip(market_trend['market_momentum'] / 30, -0.1, 0.1)
+    # Adjust based on strength (0-10% change scales to 0-0.10 adjustment)
+    # Reduced from 0.2 to 0.1 to be much less aggressive
+    strength_adj = min(0.1, market_trend['market_strength'] / 100)
     
-    # Adjust based on volatility (negative impact)
-    volatility_adj = -min(0.1, market_trend['market_volatility'] / 30)
+    # Adjust based on momentum (-3 to +3% daily change scales to -0.05 to +0.05)
+    # More conservative adjustment
+    momentum_adj = np.clip(market_trend['market_momentum'] / 60, -0.05, 0.05)
     
-    # Calculate final score and clip to (-1, 1) range
-    sentiment_score = np.clip(base_score + strength_adj + momentum_adj + volatility_adj, -1.0, 1.0)
+    # Adjust based on volatility (negative impact) - increased impact
+    volatility_adj = -min(0.15, market_trend['market_volatility'] / 25)
+    
+    # Calculate final score and clip to a narrower range
+    sentiment_score = np.clip(base_score + strength_adj + momentum_adj + volatility_adj, -0.4, 0.4)
+    
+    # Apply mean reversion factor - markets tend to revert to mean
+    # If market has been strongly trending one way, reduce sentiment in that direction
+    if (market_trend['market_direction'] == 'bullish' and market_trend['market_strength'] > 5) or \
+       (market_trend['market_direction'] == 'bearish' and market_trend['market_strength'] > 5):
+        # Apply stronger mean reversion when market has moved significantly
+        reversion_factor = min(0.5, market_trend['market_strength'] / 30)
+        sentiment_score *= (1 - reversion_factor)
+        print(f"Applied mean reversion factor of {reversion_factor:.2f} due to strong {market_trend['market_direction']} trend")
+    
+    print(f"Market sentiment calculated: {sentiment_score:.3f} (base: {base_score:.2f}, " + 
+          f"strength: {strength_adj:.3f}, momentum: {momentum_adj:.3f}, volatility: {volatility_adj:.3f})")
     
     return sentiment_score
 
-def adjust_prediction_for_market_trend(predicted_prices, market_sentiment_score, adjustment_factor=0.03):
+def adjust_prediction_for_market_trend(predicted_prices, market_sentiment_score, adjustment_factor=0.03, previous_close=None, market_trends=None):
     """
-    Adjust predicted prices based on overall market trend
+    Adjust stock price predictions based on market sentiment and trends
     
     Args:
-        predicted_prices (list or np.array): List or array of predicted prices
-        market_sentiment_score (float): Market sentiment score (-1 to 1)
-        adjustment_factor (float): Maximum percentage adjustment to apply
+        predicted_prices: List or numpy array of predicted prices
+        market_sentiment_score: The market sentiment score (-1 to 1)
+        adjustment_factor: How much to adjust predictions based on market sentiment
+        previous_close: Previous closing price (if available)
+        market_trends: Market trend information (if available)
         
     Returns:
-        list or np.array: Adjusted predicted prices
+        adjusted_prices: Adjusted predicted prices
     """
-    # Check if predicted_prices is None or empty
     if predicted_prices is None or (isinstance(predicted_prices, list) and len(predicted_prices) == 0) or \
-       (isinstance(predicted_prices, np.ndarray) and predicted_prices.size == 0) or market_sentiment_score == 0:
+       (isinstance(predicted_prices, np.ndarray) and predicted_prices.size == 0):
         return predicted_prices
     
-    # Calculate adjustment percentage (market_sentiment_score * adjustment_factor)
-    # For example: 0.8 sentiment * 0.03 = 2.4% upward adjustment
-    adjustment_percentage = market_sentiment_score * adjustment_factor
+    # Extract market direction if available
+    market_direction = 'unknown'
+    if market_trends is not None and isinstance(market_trends, dict) and 'market_direction' in market_trends:
+        market_direction = market_trends['market_direction']
     
-    # Apply adjustment to each prediction
-    # If it's a numpy array, we can do it directly
-    if isinstance(predicted_prices, np.ndarray):
-        return predicted_prices * (1 + adjustment_percentage)
+    # For sideways markets, enforce strong mean reversion
+    if market_direction == 'sideways':
+        print(f"Sideways market detected - applying strong mean reversion")
+        market_sentiment_score *= 0.3  # Reduce sentiment impact in sideways markets
+        
+        # Check if predicted_prices is a single value or an array
+        if previous_close is not None:
+            # Handle case where predicted_prices is a single value (float or numpy.float64)
+            if isinstance(predicted_prices, (float, np.float64, np.float32, int, np.int64, np.int32)):
+                # For a single value, just apply a simple adjustment
+                pct_change = (predicted_prices / previous_close) - 1
+                reversion_strength = 0.3  # Use a moderate reversion strength for single values
+                # Apply mean reversion: pull the prediction back toward the previous close
+                predicted_prices = previous_close * (1 + pct_change * (1 - reversion_strength))
+            elif hasattr(predicted_prices, '__len__') and len(predicted_prices) > 0:
+                # Original code for array of predictions
+                # Convert to numpy array for easier manipulation
+                prices_array = np.array(predicted_prices) if not isinstance(predicted_prices, np.ndarray) else predicted_prices.copy()
+                
+                # Calculate percentage change from previous close
+                pct_changes = (prices_array / previous_close) - 1
+                
+                # Apply stronger mean reversion for later days in sideways markets
+                for i in range(len(prices_array)):
+                    # Increasing mean reversion strength for later days (0.1 to 0.5)
+                    reversion_strength = min(0.1 + (i * 0.08), 0.5)
+                    
+                    # If price is going up, pull it down; if going down, pull it up
+                    if pct_changes[i] > 0:
+                        # Pull positive changes back toward zero
+                        pct_changes[i] *= (1 - reversion_strength)
+                    else:
+                        # Pull negative changes back toward zero
+                        pct_changes[i] *= (1 - reversion_strength)
+                
+                # Convert back to prices
+                mean_reverted_prices = previous_close * (1 + pct_changes)
+                
+                # Return immediately with mean-reverted prices
+                print(f"Applied mean reversion in sideways market, reducing trend magnitude")
+                
+                # Return the appropriate type
+                if isinstance(predicted_prices, list):
+                    return mean_reverted_prices.tolist()
+                return mean_reverted_prices
+    
+    # If market sentiment is neutral or nearly neutral, make minimal adjustments
+    if abs(market_sentiment_score) < 0.1:
+        print(f"Market sentiment is near neutral ({market_sentiment_score:.2f}), applying minimal adjustment")
+        return predicted_prices
+    
+    # Apply sentiment score to adjust prediction
+    # Positive sentiment -> higher prediction, negative sentiment -> lower prediction
+    adjustment = predicted_prices * market_sentiment_score * adjustment_factor
+    
+    # Apply the adjustment
+    adjusted_prediction = predicted_prices + adjustment
+    
+    # Ensure we don't predict negative prices
+    if isinstance(adjusted_prediction, (list, np.ndarray)):
+        adjusted_prediction = np.maximum(adjusted_prediction, 0.01)
     else:
-        # If it's a list, iterate through it
-        adjusted_prices = []
-        for price in predicted_prices:
-            adjusted_price = price * (1 + adjustment_percentage)
-            adjusted_prices.append(adjusted_price)
-        return adjusted_prices
+        adjusted_prediction = max(adjusted_prediction, 0.01)
+    
+    # Log the adjustment
+    if isinstance(predicted_prices, (list, np.ndarray)) and len(predicted_prices) > 0:
+        avg_original = np.mean(predicted_prices)
+        avg_adjusted = np.mean(adjusted_prediction)
+        print(f"Market sentiment adjustment: {market_sentiment_score:.4f} -> Price adjustment: {(avg_adjusted - avg_original):.2f} ({(avg_adjusted/avg_original - 1)*100:.2f}%)")
+    else:
+        # For single value
+        print(f"Market sentiment adjustment: {market_sentiment_score:.4f} -> Price adjustment: {(adjusted_prediction - predicted_prices):.2f} ({(adjusted_prediction/predicted_prices - 1)*100:.2f}%)")
+    
+    return adjusted_prediction
 
 def get_market_trend_analysis(stock_symbol, days=30):
     """

@@ -14,4 +14,9 @@ yfinance>=0.1.70  # Optional for alternative market data source
 # For Linux: sudo apt-get install ta-lib && pip install TA-Lib
 # For macOS: brew install ta-lib && pip install TA-Lib
 # Fallback if installation fails: Program will run with basic indicators only
-TA-Lib==0.4.28  # Optional dependency 
+TA-Lib==0.4.28  # Optional dependency
+
+# Additional requirements for multiple model types
+xgboost>=1.6.0  # For XGBoost models
+lightgbm>=3.3.0  # For LightGBM models
+scikit-learn>=1.0.0  # For traditional ML models (already included above) 

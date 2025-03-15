@@ -1,0 +1,167 @@
+{
+    "lstm": {
+        "name": "LSTM Network",
+        "metrics": {
+            "mse": 679.1087148715038,
+            "rmse": 26.059714405025698,
+            "mae": 23.868019799126518,
+            "mape": 10.881979243411566,
+            "r2": -5.202944906272565
+        },
+        "training_time": 42.39333486557007,
+        "val_loss": 689.1058349609375,
+        "train_loss": 265.4725341796875,
+        "is_dl_model": true,
+        "model_path": "models\\EFERT\\lstm_model.keras"
+    },
+    "bilstm": {
+        "name": "Bidirectional LSTM",
+        "metrics": {
+            "mse": 43496.73267234118,
+            "rmse": 208.55870318052226,
+            "mae": 208.29373608668644,
+            "mape": 96.83314916609989,
+            "r2": -396.29697243017904
+        },
+        "training_time": 18.479012489318848,
+        "val_loss": 10295.23828125,
+        "train_loss": 2997.000732421875,
+        "is_dl_model": true,
+        "model_path": "models\\EFERT\\bilstm_model.keras"
+    },
+    "gru": {
+        "name": "GRU Network",
+        "metrics": {
+            "mse": 43800.02943917069,
+            "rmse": 209.28456569745103,
+            "mae": 209.020759926637,
+            "mape": 97.17211887904872,
+            "r2": -399.06726987106816
+        },
+        "training_time": 13.555191278457642,
+        "val_loss": 13387.6640625,
+        "train_loss": 3852.7373046875,
+        "is_dl_model": true,
+        "model_path": "models\\EFERT\\gru_model.keras"
+    },
+    "cnn_lstm": {
+        "name": "CNN-LSTM Hybrid",
+        "metrics": {
+            "mse": 44932.476932779304,
+            "rmse": 211.97282121248304,
+            "mae": 211.7136313415898,
+            "mape": 98.42768340316472,
+            "r2": -409.41098842197766
+        },
+        "training_time": 8.923402547836304,
+        "val_loss": 13968.060546875,
+        "train_loss": 4053.462890625,
+        "is_dl_model": true,
+        "model_path": "models\\EFERT\\cnn_lstm_model.keras"
+    },
+    "advanced": {
+        "name": "Advanced Multi-Branch Model",
+        "metrics": {
+            "mse": 45939.09658666664,
+            "rmse": 214.33407705417875,
+            "mae": 214.08038534611464,
+            "mape": 99.53197690447689,
+            "r2": -418.60540180219135
+        },
+        "training_time": 33.28072929382324,
+        "val_loss": 31766.05859375,
+        "train_loss": 13142.935546875,
+        "is_dl_model": true,
+        "model_path": "models\\EFERT\\advanced_model.keras"
+    },
+    "random_forest": {
+        "name": "Random Forest",
+        "metrics": {
+            "mse": 349.6931334510234,
+            "rmse": 18.70008378192524,
+            "mae": 15.977201786816623,
+            "mape": 7.230736663740657,
+            "r2": -2.1940795242319115
+        },
+        "training_time": 19.181732892990112,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\EFERT\\random_forest_model.pkl"
+    },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "metrics": {
+            "mse": 330.42808094947054,
+            "rmse": 18.177680846287036,
+            "mae": 15.553027574137737,
+            "mape": 7.0433999024440945,
+            "r2": -2.01811350190485
+        },
+        "training_time": 19.249021291732788,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\EFERT\\gradient_boosting_model.pkl"
+    },
+    "xgboost": {
+        "name": "XGBoost",
+        "metrics": {
+            "mse": 339.36822251894455,
+            "rmse": 18.4219494766147,
+            "mae": 15.73316095140245,
+            "mape": 7.121068515640605,
+            "r2": -2.099772306151262
+        },
+        "training_time": 4.519733428955078,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\EFERT\\xgboost_model.pkl"
+    },
+    "lightgbm": {
+        "name": "LightGBM",
+        "metrics": {
+            "mse": 348.5353885695206,
+            "rmse": 18.669102511088223,
+            "mae": 16.02890325597967,
+            "mape": 7.255533159051216,
+            "r2": -2.183504740610058
+        },
+        "training_time": 1.0294311046600342,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\EFERT\\lightgbm_model.pkl"
+    },
+    "svr": {
+        "name": "Support Vector Regression",
+        "metrics": {
+            "mse": 4483.655436203003,
+            "rmse": 66.96010331684833,
+            "mae": 65.04767144836059,
+            "mape": 29.967172844655177,
+            "r2": -39.95348364766468
+        },
+        "training_time": 0.05531597137451172,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\EFERT\\svr_model.pkl"
+    },
+    "elastic_net": {
+        "name": "Elastic Net Regression",
+        "metrics": {
+            "mse": 109.7562436530527,
+            "rmse": 10.476461408942082,
+            "mae": 7.646164423688122,
+            "mape": 3.565837187575322,
+            "r2": -0.0025080190999053897
+        },
+        "training_time": 0.07782125473022461,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\EFERT\\elastic_net_model.pkl"
+    }
+}

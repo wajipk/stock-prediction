@@ -1,0 +1,167 @@
+{
+    "lstm": {
+        "name": "LSTM Network",
+        "metrics": {
+            "mse": 153.8919257137703,
+            "rmse": 12.405318444674053,
+            "mae": 11.229558551576401,
+            "mape": 38.881607536318725,
+            "r2": -4.53414604121743
+        },
+        "training_time": 15.790818452835083,
+        "val_loss": 183.23519897460938,
+        "train_loss": 8.159419059753418,
+        "is_dl_model": true,
+        "model_path": "models\\PREMA\\lstm_model.keras"
+    },
+    "bilstm": {
+        "name": "Bidirectional LSTM",
+        "metrics": {
+            "mse": 119.01163447230712,
+            "rmse": 10.909245366766077,
+            "mae": 9.55431501494514,
+            "mape": 32.65292556522168,
+            "r2": -3.2798071615449294
+        },
+        "training_time": 30.284534454345703,
+        "val_loss": 119.9261474609375,
+        "train_loss": 3.8613853454589844,
+        "is_dl_model": true,
+        "model_path": "models\\PREMA\\bilstm_model.keras"
+    },
+    "gru": {
+        "name": "GRU Network",
+        "metrics": {
+            "mse": 600.9750619949526,
+            "rmse": 24.51479271776436,
+            "mae": 23.94089978363779,
+            "mape": 86.19427899380922,
+            "r2": -20.611814556117196
+        },
+        "training_time": 18.512477159500122,
+        "val_loss": 182.56243896484375,
+        "train_loss": 7.013381004333496,
+        "is_dl_model": true,
+        "model_path": "models\\PREMA\\gru_model.keras"
+    },
+    "cnn_lstm": {
+        "name": "CNN-LSTM Hybrid",
+        "metrics": {
+            "mse": 118.67372855558239,
+            "rmse": 10.89374722286057,
+            "mae": 9.54690027660794,
+            "mape": 32.638420378921566,
+            "r2": -3.2676556423364147
+        },
+        "training_time": 15.780418395996094,
+        "val_loss": 137.52777099609375,
+        "train_loss": 6.079843997955322,
+        "is_dl_model": true,
+        "model_path": "models\\PREMA\\cnn_lstm_model.keras"
+    },
+    "advanced": {
+        "name": "Advanced Multi-Branch Model",
+        "metrics": {
+            "mse": 767.6564321637147,
+            "rmse": 27.706613509480274,
+            "mae": 27.200322817696467,
+            "mape": 98.31794848911024,
+            "r2": -26.605885009039024
+        },
+        "training_time": 45.02482604980469,
+        "val_loss": 504.6556091308594,
+        "train_loss": 136.3994903564453,
+        "is_dl_model": true,
+        "model_path": "models\\PREMA\\advanced_model.keras"
+    },
+    "random_forest": {
+        "name": "Random Forest",
+        "metrics": {
+            "mse": 104.8547240064571,
+            "rmse": 10.239859569664864,
+            "mae": 8.27604157542161,
+            "mape": 27.862554658635908,
+            "r2": -2.7707069625119205
+        },
+        "training_time": 29.59356713294983,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\PREMA\\random_forest_model.pkl"
+    },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "metrics": {
+            "mse": 105.23722370732308,
+            "rmse": 10.258519567039052,
+            "mae": 8.072242751481182,
+            "mape": 27.036146178734565,
+            "r2": -2.7844621299483943
+        },
+        "training_time": 25.42884397506714,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\PREMA\\gradient_boosting_model.pkl"
+    },
+    "xgboost": {
+        "name": "XGBoost",
+        "metrics": {
+            "mse": 79.68478248557801,
+            "rmse": 8.92663332312793,
+            "mae": 6.667086568408542,
+            "mape": 21.886699875185737,
+            "r2": -1.865564398473012
+        },
+        "training_time": 4.823714971542358,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\PREMA\\xgboost_model.pkl"
+    },
+    "lightgbm": {
+        "name": "LightGBM",
+        "metrics": {
+            "mse": 89.48171185180938,
+            "rmse": 9.459477356165582,
+            "mae": 7.747260550460829,
+            "mape": 26.03252327907098,
+            "r2": -2.21787422640419
+        },
+        "training_time": 1.0628297328948975,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\PREMA\\lightgbm_model.pkl"
+    },
+    "svr": {
+        "name": "Support Vector Regression",
+        "metrics": {
+            "mse": 157.31811696316993,
+            "rmse": 12.542651911105958,
+            "mae": 11.289176870580494,
+            "mape": 39.049603512579914,
+            "r2": -4.6573561619003385
+        },
+        "training_time": 0.051429033279418945,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\PREMA\\svr_model.pkl"
+    },
+    "elastic_net": {
+        "name": "Elastic Net Regression",
+        "metrics": {
+            "mse": 187.2321060051157,
+            "rmse": 13.683278335439782,
+            "mae": 12.62633741258741,
+            "mape": 44.077634316688474,
+            "r2": -5.733100605708364
+        },
+        "training_time": 0.01016545295715332,
+        "val_loss": null,
+        "train_loss": null,
+        "is_dl_model": false,
+        "model_path": "models\\PREMA\\elastic_net_model.pkl"
+    }
+}

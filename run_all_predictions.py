@@ -27,13 +27,13 @@ def get_failed_companies():
     with open("failed_companies.txt", "r") as f:
         return [line.strip() for line in f.readlines() if line.strip()]
 
-def run_prediction(symbol, retry_failed=False, force_training=False, additional_args=None):
+def run_prediction(symbol, retry_failed=False, force_training=True, additional_args=None):
     """Run prediction for a single company with enhanced error handling
     
     Args:
         symbol (str): Stock symbol to predict
         retry_failed (bool): Whether this is a retry for a previously failed symbol
-        force_training (bool): Whether to force training even if models exist
+        force_training (bool): Whether to force training even if models exist (default: True)
         additional_args (list): Additional command line arguments to pass
         
     Returns:
@@ -42,25 +42,22 @@ def run_prediction(symbol, retry_failed=False, force_training=False, additional_
     # Build command
     command = f"python main.py --symbol {symbol}"
     
-    # Add training flag if needed
-    if force_training:
-        # Don't skip training
-        pass
-    else:
-        command += " --skip_training"
-    
-    # Add any additional arguments
-    if additional_args:
-        command += " " + additional_args
     
     # Add timestamp for logging
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     action = "Retrying" if retry_failed else "Running"
     print(f"[{timestamp}] {action} prediction for {symbol}...")
+    print(f"[{timestamp}] Executing command: {command}")
     
     try:
-        # Run the command and capture output
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        # Run the command with real-time output
+        print(f"[{timestamp}] --- Starting subprocess for {symbol} ---")
+        print(f"[{timestamp}] --- Output from main.py will appear below ---")
+        
+        # Run the process with stdout and stderr passed directly to console for real-time viewing
+        result = subprocess.run(command, shell=True, text=True)
+        
+        print(f"[{timestamp}] --- End of subprocess output for {symbol} ---")
         
         # Check if the process succeeded
         if result.returncode == 0:
@@ -81,8 +78,6 @@ def run_prediction(symbol, retry_failed=False, force_training=False, additional_
             return True
         else:
             print(f"[{timestamp}] Error running prediction for {symbol}: Process exited with code {result.returncode}")
-            print(f"[{timestamp}] STDOUT: {result.stdout}")
-            print(f"[{timestamp}] STDERR: {result.stderr}")
             
             # Record the failure
             try:
@@ -122,8 +117,10 @@ def main():
                        help="Delay between predictions in seconds (default: 0)")
     parser.add_argument("--retry_failed", action="store_true",
                        help="Retry previously failed companies with force_training enabled")
-    parser.add_argument("--force_training", action="store_true",
-                       help="Force training for all symbols")
+    parser.add_argument("--force_training", action="store_true", default=True,
+                       help="Force training for all symbols (default: True)")
+    parser.add_argument("--skip_training", action="store_true",
+                       help="Skip training models and only run predictions")
     parser.add_argument("--additional_args", type=str, default="",
                        help="Additional arguments to pass to main.py (in quotes)")
     args = parser.parse_args()
@@ -157,7 +154,7 @@ def main():
         return run_prediction(
             symbol, 
             retry_failed=args.retry_failed,
-            force_training=args.force_training or args.retry_failed,
+            force_training=not args.skip_training,
             additional_args=args.additional_args
         )
     

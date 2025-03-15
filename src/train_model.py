@@ -11,9 +11,12 @@ import matplotlib.pyplot as plt
 import joblib
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import sys
+import time
+from datetime import datetime
 
 from src.preprocessing import load_stock_data, add_technical_indicators, prepare_train_test_data
 from src.prediction_reward_system import PredictionRewardSystem
+from src.model_selection import ModelSelector, ModelFactory, ModelEvaluator, MODEL_REGISTRY
 
 
 def build_advanced_model(input_shape, dropout_rate=0.3, learning_rate=0.001):
@@ -438,24 +441,112 @@ def plot_training_history(history, symbol, model_dir='models'):
     print(f"Saved training history plot to {plot_path}")
 
 
+def update_previous_predictions_with_actual_prices(symbol, df, reward_system, no_rules=False):
+    """
+    Update previous predictions with actual prices if available in the current data
+    
+    Args:
+        symbol (str): Stock symbol
+        df (pd.DataFrame): DataFrame with stock data including actual prices
+        reward_system (PredictionRewardSystem): The reward system instance to update
+        no_rules (bool): Whether to skip applying financial rules
+        
+    Returns:
+        int: Number of predictions updated
+    """
+    if reward_system is None or df is None or len(df) == 0:
+        return 0
+        
+    print("\nUpdating previous predictions with actual prices (if available)...")
+    try:
+        # Get prediction history
+        predictions_df = reward_system.get_prediction_history()
+        
+        # If we have no predictions, nothing to update
+        if predictions_df.empty:
+            print("No previous predictions found to update")
+            return 0
+            
+        # Get predictions that don't have actual prices
+        pending_predictions = predictions_df[predictions_df['actual_price'].isna()]
+        
+        if pending_predictions.empty:
+            print("No pending predictions found that need actual price updates")
+            return 0
+            
+        print(f"Found {len(pending_predictions)} predictions that need actual price updates")
+        
+        # Make sure stock data has datetime format for 'date' column
+        stock_data = df.copy()
+        stock_data['date'] = pd.to_datetime(stock_data['date'])
+        
+        # For each prediction without an actual price
+        update_count = 0
+        for _, row in pending_predictions.iterrows():
+            pred_date = pd.to_datetime(row['date'])
+            
+            # Find this date in our stock data
+            matching_data = stock_data[stock_data['date'] == pred_date]
+            
+            if not matching_data.empty:
+                # We have actual price data for this prediction
+                actual_price = matching_data['close'].values[0]
+                
+                # Update the prediction with actual price
+                if reward_system.update_actual_price(pred_date, actual_price):
+                    update_count += 1
+                    print(f"  Updated prediction for {pred_date.strftime('%Y-%m-%d')}: Predicted={row['predicted_price']:.2f}, Actual={actual_price:.2f}")
+        
+        if update_count > 0:
+            print(f"Successfully updated {update_count} predictions with actual prices")
+            
+            # Now that we've updated predictions, let's print accuracy metrics
+            metrics = reward_system.get_overall_accuracy()
+            if metrics['count'] > 0:
+                print(f"\nPrediction accuracy metrics:")
+                print(f"  Total predictions with actual prices: {metrics['count']}")
+                print(f"  Mean accuracy: {metrics['mean_accuracy']*100:.2f}%")
+                print(f"  Predictions meeting threshold: {metrics['threshold_met_count']} ({metrics['threshold_met_pct']*100:.2f}%)")
+        else:
+            print("No predictions could be updated with actual prices")
+            
+        return update_count
+    except Exception as e:
+        print(f"Warning: Error updating predictions with actual prices: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
 def main(symbol=None, window_size=10, epochs=100, batch_size=32, prediction_days=5, 
          learning_rate=0.001, dropout_rate=0.3, use_legacy_model=False, 
-         no_rules=False, df_with_indicators=None, reward_system=None):
+         no_rules=False, df_with_indicators=None, reward_system=None,
+         use_model_selection=True, models_to_try=None, priority_metric='mape',
+         accuracy_threshold=0.75, sequential_selection=True, model_dir='models'):
     """
-    Main function to train a model for a specific stock
+    Main function for model training
     
     Args:
         symbol (str): Stock symbol
         window_size (int): Window size for sequences
         epochs (int): Number of training epochs
         batch_size (int): Batch size for training
-        prediction_days (int): Number of days ahead to predict
-        learning_rate (float): Learning rate for training
+        prediction_days (int): Number of days to predict ahead
+        learning_rate (float): Learning rate for model training
         dropout_rate (float): Dropout rate for regularization
-        use_legacy_model (bool): Use legacy LSTM model instead of advanced model
-        no_rules (bool): Skip applying financial rules
-        df_with_indicators (pd.DataFrame): DataFrame with pre-calculated technical indicators
-        reward_system (PredictionRewardSystem): Reward system for tracking predictions
+        use_legacy_model (bool): Whether to use the legacy LSTM model
+        no_rules (bool): Whether to apply financial rules
+        df_with_indicators (pd.DataFrame): Pre-calculated technical indicators
+        reward_system (PredictionRewardSystem): Optional reward system instance
+        use_model_selection (bool): Whether to use model selection
+        models_to_try (list): List of models to try
+        priority_metric (str): Metric to prioritize for model selection
+        accuracy_threshold (float): Minimum acceptable accuracy (0.0-1.0)
+        sequential_selection (bool): Whether to try models sequentially until finding acceptable accuracy
+        model_dir (str): Directory to save models in, defaults to 'models'
+    
+    Returns:
+        tuple: (model, feature_list, scaler)
     """
     # If no symbol is provided via argument, try to get it from command line
     if symbol is None:
@@ -473,6 +564,11 @@ def main(symbol=None, window_size=10, epochs=100, batch_size=32, prediction_days
         parser.add_argument('--force_cpu', action='store_true', help='Force CPU usage')
         parser.add_argument('--no_reward_system', action='store_true', help='Skip using reward system')
         parser.add_argument('--reward_threshold', type=float, default=0.05, help='Reward system threshold')
+        parser.add_argument('--no_model_selection', action='store_true', help='Disable automatic model selection (use single model approach instead)')
+        parser.add_argument('--models_to_try', type=str, nargs='+', help='List of models to try')
+        parser.add_argument('--priority_metric', type=str, default='mape', 
+                         choices=['mse', 'rmse', 'mae', 'mape', 'r2'], 
+                         help='Metric to prioritize for model selection')
         
         args = parser.parse_args()
         
@@ -486,6 +582,9 @@ def main(symbol=None, window_size=10, epochs=100, batch_size=32, prediction_days
         learning_rate = args.learning_rate
         dropout_rate = args.dropout
         use_legacy_model = args.use_legacy_model
+        use_model_selection = not args.no_model_selection  # Model selection is on by default unless disabled
+        models_to_try = args.models_to_try
+        priority_metric = args.priority_metric
         
         # Force CPU if requested
         if args.force_cpu:
@@ -522,69 +621,213 @@ def main(symbol=None, window_size=10, epochs=100, batch_size=32, prediction_days
         print(f"Error: Failed to add technical indicators for {symbol}")
         return
     
-    # Prepare data
-    print("Preparing training data...")
-    try:
-        X_train, X_test, y_train, y_test, scaler, features = prepare_train_test_data(
-            df_with_indicators, 
-            window_size=window_size, 
-            prediction_days=prediction_days
-        )
-    except Exception as e:
-        print(f"Error preparing training data: {e}")
-        import traceback
-        traceback.print_exc()
-        return
+    # Before training, check if we need to update any previous predictions with actual prices
+    if reward_system is not None:
+        update_previous_predictions_with_actual_prices(symbol, df_with_indicators, reward_system, no_rules=no_rules)
     
-    if X_train is None or len(X_train) == 0:
-        print("Error: Failed to prepare training data")
-        return
-    
-    print(f"Data prepared successfully. Training with {len(X_train)} sequences, window size {window_size}")
-    print(f"Validation set has {len(X_test)} sequences")
-    
-    # Create company-specific model directory
-    company_model_dir = os.path.join('models', symbol)
-    os.makedirs(company_model_dir, exist_ok=True)
-    
-    # Train model
-    print(f"Training {'legacy' if use_legacy_model else 'advanced'} model...")
-    model, history = train_model(
-        X_train, y_train, 
-        X_test, y_test, 
-        model_dir=company_model_dir, 
-        symbol=symbol, 
-        epochs=epochs, 
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        dropout_rate=dropout_rate,
-        use_legacy_model=use_legacy_model,
-        reward_system=reward_system
+    # Prepare data for training
+    print("Preparing data for training...")
+    X_train, X_test, y_train, y_test, scaler, feature_list = prepare_train_test_data(
+        df_with_indicators, window_size=window_size, prediction_days=prediction_days
     )
     
-    if model is None:
-        print("Error: Model training failed")
-        return
+    print(f"Data prepared successfully:")
+    print(f"  Training samples: {len(X_train)}")
+    print(f"  Testing samples: {len(X_test)}")
+    print(f"  Features: {X_train.shape[2]} ({', '.join(feature_list[:5])}...)")
     
-    # Evaluate model
-    mse, rmse, mae, mape, r2 = evaluate_model(model, X_test, y_test)
+    # Add callbacks for early stopping and learning rate reduction
+    callbacks = []
+    callbacks.append(
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=20,
+            restore_best_weights=True,
+            verbose=1
+        )
+    )
+    callbacks.append(
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=10,
+            min_lr=1e-5,
+            verbose=1
+        )
+    )
+    callbacks.append(
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(model_dir, symbol, "checkpoint.keras"),
+            save_best_only=True,
+            verbose=1
+        )
+    )
     
-    print(f"Model evaluation metrics:")
-    print(f"- MSE: {mse:.5f}")
-    print(f"- RMSE: {rmse:.5f}")
-    print(f"- MAE: {mae:.5f}")
-    print(f"- MAPE: {mape:.2f}%")
-    print(f"- R^2: {r2:.5f}")
+    # If using model selection approach
+    if use_model_selection:
+        # Initialize model selector
+        model_selector = ModelSelector(symbol=symbol, model_dir=model_dir)
+        
+        # Check if we already have a model for this symbol
+        best_model_info_file = os.path.join(model_dir, symbol, "best_model_info.json")
+        has_existing_model = os.path.exists(best_model_info_file)
+        
+        # Check historical prediction accuracy if we have a reward system
+        current_model_acceptable = False
+        if has_existing_model and reward_system:
+            print("\nChecking historical prediction accuracy for existing model...")
+            metrics = reward_system.get_overall_accuracy()
+            
+            if metrics['count'] > 0 and metrics['mean_accuracy'] is not None:
+                historical_accuracy = 1.0 - metrics['mean_accuracy']  # Convert error to accuracy
+                print(f"Historical prediction accuracy: {historical_accuracy*100:.2f}%")
+                
+                if historical_accuracy >= accuracy_threshold:
+                    print(f"Existing model meets accuracy threshold ({accuracy_threshold*100:.2f}%)")
+                    current_model_acceptable = True
+                else:
+                    print(f"Existing model does not meet accuracy threshold: {historical_accuracy*100:.2f}% < {accuracy_threshold*100:.2f}%")
+                    print("Will train new models to find a better one")
+            else:
+                print("No historical prediction data available to evaluate existing model")
+        
+        # If existing model is acceptable, we can skip training new models
+        if has_existing_model and current_model_acceptable:
+            print("\nKeeping existing model as it meets accuracy requirements")
+            
+            # Load existing model info
+            with open(best_model_info_file, 'r') as f:
+                import json
+                best_model_info = json.load(f)
+            
+            best_model_type = best_model_info['best_model_type']
+            is_dl_model = best_model_info['is_dl_model']
+            model_path = best_model_info['model_path']
+            
+            print(f"Using model: {best_model_info['model_name']} ({best_model_type})")
+            
+            # Load the model
+            if is_dl_model:
+                model = tf.keras.models.load_model(model_path)
+            else:
+                model = joblib.load(model_path)
+            
+            # Return early with existing model and metadata
+            return model, feature_list, scaler
+            
+        # Proceed with model selection
+        print("\nUsing model selection approach...")
+        print(f"Available models: {', '.join(MODEL_REGISTRY.keys())}")
+        
+        # If specific models are requested, validate them
+        if models_to_try:
+            valid_models = []
+            for model_name in models_to_try:
+                if model_name in MODEL_REGISTRY:
+                    valid_models.append(model_name)
+                else:
+                    print(f"Warning: Unknown model '{model_name}'. Skipping.")
+            
+            models_to_try = valid_models
+            print(f"Training the following models: {', '.join(models_to_try)}")
+        else:
+            # Default to using all models
+            models_to_try = list(MODEL_REGISTRY.keys())
+            print(f"Training models: {', '.join(models_to_try)}")
+        
+        # Determine whether to use sequential or parallel approach
+        if sequential_selection:
+            print(f"\nUsing sequential model selection with accuracy threshold: {accuracy_threshold*100:.2f}%")
+            
+            # Train and evaluate models one by one until finding one with acceptable accuracy
+            best_model_type, best_model_data, results = model_selector.try_models_sequentially(
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                models_to_try=models_to_try,
+                accuracy_threshold=accuracy_threshold,
+                window_size=window_size,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate,
+                dropout_rate=dropout_rate,
+                callbacks=callbacks,
+                priority_metric=priority_metric,
+                reward_system=reward_system
+            )
+        else:
+            print("\nTraining all models in parallel (legacy approach)")
+            
+            # Train and evaluate all requested models at once
+            results = model_selector.train_and_evaluate_models(
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                models_to_try=models_to_try,
+                window_size=window_size,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate,
+                dropout_rate=dropout_rate,
+                callbacks=callbacks
+            )
+            
+            # Select best model based on priority metric
+            best_model_type, best_model_data = model_selector.select_best_model(
+                results=results,
+                priority_metric=priority_metric
+            )
+        
+        print(f"\nBest model for {symbol} based on {priority_metric}: {MODEL_REGISTRY[best_model_type]}")
+        print(f"Best model metrics:")
+        for metric, value in best_model_data['metrics'].items():
+            print(f"  {metric.upper()}: {value:.4f}")
+        
+        # Save metadata using the best model's information
+        save_model_metadata(symbol, feature_list, scaler, model_dir=model_dir)
+        
+        # Create visualization of model comparison
+        print("\nGenerating model comparison visualization...")
+        model_selector.visualize_model_comparison(results=results)
+        
+        print("\nModel training completed successfully!")
+    else:
+        # Traditional single-model approach
+        print("Using traditional single-model approach...")
+        
+        # Train model
+        model, history = train_model(
+            X_train=X_train,
+            y_train=y_train,
+            X_test=X_test,
+            y_test=y_test,
+            model_dir=model_dir,
+            symbol=symbol,
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+            dropout_rate=dropout_rate,
+            use_legacy_model=use_legacy_model,
+            reward_system=reward_system
+        )
+        
+        if model is None:
+            print("Error: Model training failed")
+            return
+        
+        # Save model metadata
+        save_model_metadata(symbol, feature_list, scaler, model_dir=model_dir)
+        
+        # Evaluate model
+        print("\nEvaluating model...")
+        evaluate_model(model, X_test, y_test)
+        
+        # Plot training history
+        plot_training_history(history, symbol, model_dir=model_dir)
     
-    # Save features and scaler
-    save_model_metadata(symbol, features, scaler, model_dir=company_model_dir)
-    
-    # Plot training history
-    plot_training_history(history, symbol, model_dir=company_model_dir)
-    
-    print("Model training completed successfully!")
-    
-    return model, history, scaler, features
+    print("\nModel training completed successfully!")
 
 
 if __name__ == "__main__":

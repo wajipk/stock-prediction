@@ -39,15 +39,27 @@ def main():
     parser.add_argument('--threshold', type=float, default=2.0, help='Threshold percentage for significant movements')
     parser.add_argument('--skip_training', action='store_true', help='Skip training and use existing model')
     parser.add_argument('--no_rules', action='store_true', help='Skip applying financial rules (for testing purposes)')
-    parser.add_argument('--smoothing', type=float, default=0.7, help='Smoothing factor for predictions (0.0-1.0)')
+    parser.add_argument('--smoothing', type=float, default=0.5, help='Smoothing factor for predictions (0.0-1.0)')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for model training')
-    parser.add_argument('--dropout', type=float, default=0.3, help='Dropout rate for model regularization')
+    parser.add_argument('--dropout', type=float, default=0.4, help='Dropout rate for model regularization')
     parser.add_argument('--use_legacy_model', action='store_true', help='Use the simple LSTM model instead of the advanced model')
     parser.add_argument('--force_cpu', action='store_true', help='Force using CPU even if GPU is available')
-    parser.add_argument('--market_adjustment', type=float, default=0.03, help='Market trend adjustment factor (0.0-0.1)')
+    parser.add_argument('--market_adjustment', type=float, default=0.015, help='Market trend adjustment factor (0.0-0.1)')
     parser.add_argument('--no_market_trends', action='store_true', help='Skip applying market trend adjustments')
     parser.add_argument('--reward_threshold', type=float, default=0.05, help='Threshold for the reward system')
     parser.add_argument('--no_reward_system', action='store_true', help='Skip using the reward system')
+    parser.add_argument('--no_reality_check', action='store_true', help='Disable reality checks for predictions (not recommended)')
+    parser.add_argument('--no_model_selection', action='store_true', help='Disable automatic model selection (use single model approach instead)')
+    parser.add_argument('--models_to_try', type=str, nargs='+', help='List of models to try (e.g., "lstm bilstm xgboost")')
+    parser.add_argument('--priority_metric', type=str, default='mape', 
+                       choices=['mse', 'rmse', 'mae', 'mape', 'r2'], 
+                       help='Metric to prioritize for model selection')
+    parser.add_argument('--accuracy_threshold', type=float, default=0.75,
+                       help='Minimum acceptable model accuracy (0.0-1.0, default: 0.75)')
+    parser.add_argument('--sequential_selection', action='store_true', default=True,
+                       help='Try models sequentially until finding one with acceptable accuracy')
+    parser.add_argument('--parallel_selection', action='store_true',
+                       help='Train all models in parallel (legacy approach)')
     
     args = parser.parse_args()
     
@@ -123,6 +135,7 @@ def main():
         if not args.no_reward_system:
             reward_system = PredictionRewardSystem(symbol=args.symbol, threshold=args.reward_threshold)
             print(f"Prediction reward system enabled with threshold {args.reward_threshold}")
+            print(f"Self-learning feature active: Previous predictions will be compared with actual prices to improve future forecasts")
         
         # Train model using the data with pre-calculated indicators
         try:
@@ -136,7 +149,13 @@ def main():
                 dropout_rate=args.dropout,
                 use_legacy_model=args.use_legacy_model,
                 df_with_indicators=df_with_indicators,  # Pass the pre-calculated indicators
-                reward_system=reward_system
+                reward_system=reward_system,
+                use_model_selection=not args.no_model_selection,  # Use model selection by default unless disabled
+                models_to_try=args.models_to_try,
+                priority_metric=args.priority_metric,
+                accuracy_threshold=args.accuracy_threshold,
+                sequential_selection=not args.parallel_selection,  # Use sequential selection by default unless parallel is specified
+                model_dir='models'  # Add default model_dir parameter
             )
         except Exception as e:
             print(f"Error during model training: {e}")
@@ -153,6 +172,8 @@ def main():
     reward_system = None
     if not args.no_reward_system:
         reward_system = PredictionRewardSystem(symbol=args.symbol, threshold=args.reward_threshold)
+        print(f"Prediction reward system enabled with threshold {args.reward_threshold}")
+        print(f"Predictions will be stored for future accuracy evaluation and model improvement")
     
     # Get market trend information
     market_trend_info = None
@@ -176,7 +197,8 @@ def main():
             market_adjustment_factor=args.market_adjustment,
             market_trend_info=market_trend_info,
             reward_system=reward_system,
-            df_with_indicators=df_with_indicators  # Pass the pre-calculated indicators
+            df_with_indicators=df_with_indicators,  # Pass the pre-calculated indicators
+            reality_check=not args.no_reality_check
         )
     except Exception as e:
         print(f"Error during prediction: {e}")

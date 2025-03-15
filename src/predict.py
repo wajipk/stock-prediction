@@ -10,10 +10,14 @@ from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.dates as mdates
 import sys
+import json
+import time
+import requests
 
-from src.preprocessing import load_stock_data, add_technical_indicators
+from src.preprocessing import load_stock_data, add_technical_indicators, prepare_prediction_data
 from src.market_analysis import get_market_trend_analysis, adjust_prediction_for_market_trend
 from src.prediction_reward_system import PredictionRewardSystem
+from src.reality_check import validate_predictions_against_reality, get_column_case_insensitive
 
 
 def format_date_safely(date_obj):
@@ -51,6 +55,59 @@ def load_model_and_metadata(symbol, model_dir='models'):
     
     # Enhanced debugging
     print(f"Looking for models for {symbol} in the following locations:")
+    
+    # First, check if we have a best model selected by the model selection system
+    best_model_info_path = os.path.join(company_model_dir, "best_model_info.json")
+    if os.path.exists(best_model_info_path):
+        print(f"Found best model info at: {best_model_info_path}")
+        try:
+            import json
+            with open(best_model_info_path, 'r') as f:
+                best_model_info = json.load(f)
+                
+            # Get best model path and type
+            model_path = best_model_info['model_path']
+            is_dl_model = best_model_info['is_dl_model']
+            model_type = best_model_info['best_model_type']
+            model_name = best_model_info['model_name']
+            
+            # Check if model file exists
+            if os.path.exists(model_path):
+                print(f"Using best model ({model_name}) for {symbol}")
+                
+                # Load model based on type
+                if is_dl_model:
+                    model = tf.keras.models.load_model(model_path)
+                else:
+                    model = joblib.load(model_path)
+                
+                # Load scaler and features
+                scaler_path = os.path.join(company_model_dir, "scaler.pkl")
+                features_path = os.path.join(company_model_dir, "features.txt")
+                
+                if os.path.exists(scaler_path):
+                    scaler = joblib.load(scaler_path)
+                else:
+                    print(f"Warning: Scaler not found at {scaler_path}")
+                    scaler = None
+                
+                if os.path.exists(features_path):
+                    with open(features_path, 'r') as f:
+                        features = f.read().splitlines()
+                else:
+                    print(f"Warning: Features not found at {features_path}")
+                    features = None
+                
+                print(f"Successfully loaded best model ({model_name}) for {symbol}")
+                return model, scaler, features
+            else:
+                print(f"Warning: Best model file not found at {model_path}")
+                # Continue to try other model paths
+        except Exception as e:
+            print(f"Error loading best model: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue to try other model paths
     
     # Check for nested model directory structure (from train_and_predict_agp.py)
     nested_advanced_model_path = os.path.join(company_model_dir, symbol, "advanced_model.keras")
@@ -229,6 +286,15 @@ def prepare_prediction_data(df, features, scaler, window_size=10):
         # Now select only the required features
         df_features = df_copy[features]
         
+        # Check for and replace infinity values
+        print("Checking for and handling infinity or extremely large values...")
+        df_features = df_features.replace([np.inf, -np.inf], np.nan)
+        
+        # Check for extremely large values and cap them
+        for col in df_features.select_dtypes(include=np.number).columns:
+            # Check for extreme values (simple approach: cap at reasonable limits)
+            df_features[col] = df_features[col].clip(-1e6, 1e6)
+        
         # Check for NaN values
         if df_features.isna().any().any():
             print("Warning: Data contains NaN values. Filling with forward fill method...")
@@ -241,8 +307,50 @@ def prepare_prediction_data(df, features, scaler, window_size=10):
                 df_features = df_features.fillna(0)
                 print("Warning: Some NaN values could not be filled with forward/backward fill. Using zeros.")
         
-        # Scale the data
-        scaled_data = scaler.transform(df_features)
+        # Final safety check for any remaining issues
+        if df_features.isna().any().any() or np.isinf(df_features.values).any():
+            print("WARNING: Data still contains NaN or infinity values after cleaning. Replacing with zeros.")
+            df_features = df_features.replace([np.inf, -np.inf], 0).fillna(0)
+        
+        # Try to scale the data with error handling
+        try:
+            scaled_data = scaler.transform(df_features)
+        except Exception as scale_error:
+            print(f"Error during scaling: {scale_error}")
+            print("Attempting fallback scaling method...")
+            
+            # Fallback: do manual min-max scaling using known feature ranges
+            scaled_data_list = []
+            for i, feature_name in enumerate(features):
+                feature_values = df_features[feature_name].values
+                # Replace any problematic values
+                feature_values = np.nan_to_num(feature_values, nan=0.0, posinf=1.0, neginf=0.0)
+                # Try to get min/max from scaler for this feature
+                try:
+                    feature_min = scaler.data_min_[i]
+                    feature_max = scaler.data_max_[i]
+                    # If min and max are the same, just use 0
+                    if feature_min == feature_max:
+                        scaled_feature = np.zeros_like(feature_values)
+                    else:
+                        # Manual min-max scaling
+                        scaled_feature = (feature_values - feature_min) / (feature_max - feature_min)
+                        # Clip to [0, 1] range to be safe
+                        scaled_feature = np.clip(scaled_feature, 0, 1)
+                except:
+                    # If getting min/max fails, just normalize to [0,1] based on current values
+                    curr_min = np.min(feature_values)
+                    curr_max = np.max(feature_values)
+                    if curr_min == curr_max:
+                        scaled_feature = np.zeros_like(feature_values)
+                    else:
+                        scaled_feature = (feature_values - curr_min) / (curr_max - curr_min)
+                        scaled_feature = np.clip(scaled_feature, 0, 1)
+                
+                scaled_data_list.append(scaled_feature)
+            
+            # Convert to numpy array and reshape to the right format
+            scaled_data = np.column_stack(scaled_data_list)
         
         # Create sequences
         X = []
@@ -265,323 +373,400 @@ def prepare_prediction_data(df, features, scaler, window_size=10):
         return None, None
 
 
-def predict_future_prices_advanced(model, X, df, scaler, features, days_ahead=5, smoothing_factor=0.7, apply_market_trends=True, market_adjustment_factor=0.03, market_trend_info=None, reward_system=None, window_size=10):
+def generate_weekday_dates(start_date, num_days):
     """
-    Predict future stock prices
+    Generate a list of weekday dates starting from the given date
+    
+    Args:
+        start_date (datetime): Starting date
+        num_days (int): Number of weekdays to generate
+        
+    Returns:
+        list: List of datetime objects representing weekdays
+    """
+    dates = []
+    current_date = start_date
+    
+    while len(dates) < num_days:
+        current_date = current_date + timedelta(days=1)
+        # Skip weekends (0 = Monday, 6 = Sunday)
+        if current_date.weekday() < 5:  # 0-4 are weekdays
+            dates.append(current_date)
+    
+    return dates
+
+
+def predict_future_prices_advanced(model, X, df, scaler, features, days_ahead=5, smoothing_factor=0.7, apply_market_trends=True, market_adjustment_factor=0.03, market_trend_info=None, reward_system=None, window_size=10, is_dl_model=True):
+    """
+    Predict future prices using the advanced model
     
     Args:
         model: Trained model
-        X: Prepared sequence data
-        df: DataFrame with historical data
-        scaler: Fitted scaler
-        features: Feature names
-        days_ahead: Number of days to predict ahead
-        smoothing_factor: Smoothing factor for predictions (0.0-1.0)
-        apply_market_trends: Whether to apply market trend adjustments
-        market_adjustment_factor: Factor controlling how much market trends affect predictions
-        market_trend_info: Tuple containing market trend information (trends, sentiment_score)
-        reward_system: PredictionRewardSystem instance for tracking predictions
-        window_size: Size of the window used for predictions
+        X (np.array): Last window of data for prediction
+        df (pd.DataFrame): DataFrame with historical data
+        scaler: Scaler used for normalization
+        features (list): Feature names used for prediction
+        days_ahead (int): Number of days ahead to predict
+        smoothing_factor (float): Factor for smoothing predictions (0.0-1.0)
+        apply_market_trends (bool): Whether to apply market trend adjustments
+        market_adjustment_factor (float): Factor for market trend adjustments
+        market_trend_info (dict): Market trend information
+        reward_system (PredictionRewardSystem): System for tracking and rewarding predictions
+        window_size (int): Window size for sequences
+        is_dl_model (bool): Whether the model is a deep learning model (True) or traditional ML model (False)
         
     Returns:
         tuple: (predictions, confidence_intervals, significant_days, future_dates)
     """
-    # Validate inputs
-    if X is None or len(X) == 0:
-        print("Error: No input data for prediction")
-        return None, None, None, None
-    
-    # Handle case where X is a tuple (likely from prepare_prediction_data)
-    if isinstance(X, tuple):
-        print("Detected tuple return value from prepare_prediction_data")
-        if len(X) >= 1 and X[0] is not None:
-            X_data = X[0]  # Extract the actual array from the tuple
-        else:
-            print("Error: X tuple does not contain valid data")
-            return None, None, None, None
-    else:
-        X_data = X  # X is already the data we need
-    
-    # Get the most recent window
-    try:
-        last_window = X_data[-1:].copy()
-    except (IndexError, AttributeError) as e:
-        print(f"Error accessing last window from input data: {e}")
-        print(f"X_data type: {type(X_data)}, shape (if array): {getattr(X_data, 'shape', 'No shape')}")
-        return None, None, None, None
-    
-    # Store the original dataframe
-    df_future = df.copy()
-    
-    try:
-        last_date = df_future['date'].iloc[-1]
-    except (IndexError, KeyError) as e:
-        print(f"Error accessing date column: {e}")
-        return None, None, None, None
-    
-    # Make predictions
-    prices = []
+    # Predictions will be stored here
+    predictions = []
     confidence_intervals = []
+    future_dates = []  # Initialize as an empty list
     
-    # Use the last window as our starting point
-    current_window = last_window.copy()
-    
-    # Extract the feature indices for close price
+    # Get last date and price from the historical data
     try:
-        close_idx = features.index('close')
-    except ValueError:
-        print("Warning: 'close' column not found in features. Using first feature instead.")
-        close_idx = 0
-    
-    # Get the min and max values for the close price to ensure predictions are in a reasonable range
-    if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
-        min_price = scaler.data_min_[close_idx]
-        max_price = scaler.data_max_[close_idx]
-    else:
-        min_price = 0
-        max_price = 1
-    
-    # Get the last closing price for applying PSX price limits
-    last_close_price = df['close'].iloc[-1]
-    
-    # Generate future predictions
-    for i in range(days_ahead):
-        # Predict the next day's price
-        pred = model.predict(current_window, verbose=0)
-        
-        # Add some randomness to simulate confidence intervals
-        # This is a simple way to generate intervals and could be improved
-        noise_level = 0.01  # 1% random noise
-        lower_bound = pred * (1 - noise_level)
-        upper_bound = pred * (1 + noise_level)
-        
-        # Apply PSX price limit rules
-        if i == 0:
-            # For first day prediction, apply limits based on the last actual closing price
-            pred_value = apply_psx_price_limits(pred[0][0], last_close_price)
-        else:
-            # For subsequent days, apply limits based on the previous day's prediction
-            pred_value = apply_psx_price_limits(pred[0][0], prices[-1])
-            
-        # Recompute confidence intervals after applying price limits
-        lower_bound_value = pred_value * (1 - noise_level)
-        upper_bound_value = pred_value * (1 + noise_level)
-            
-        # Store the prediction and confidence intervals
-        prices.append(pred_value)
-        confidence_intervals.append((lower_bound_value, upper_bound_value))
-        
-        # Update the window for the next prediction (rolling window approach)
-        try:
-            # Check the structure of current_window to extract features correctly
-            if current_window.ndim > 2 and current_window.shape[1] > 0 and current_window.shape[2] > 0:
-                # For 3D arrays (sequences, time steps, features)
-                next_features = current_window[0, -1].copy()  # Get the last time step from first sequence
-            else:
-                print(f"Warning: Unexpected current_window shape: {current_window.shape}")
-                # Create a dummy array of the right size for the next prediction
-                next_features = np.zeros(len(features))
-                
-            # Update the close price feature with our prediction
-            # Apply smoothing if this is not the first prediction
-            if i > 0 and smoothing_factor > 0:
-                smoothed_price = smoothing_factor * prices[-1] + (1 - smoothing_factor) * prices[-2]
-                next_features[close_idx] = smoothed_price
-            else:
-                next_features[close_idx] = prices[-1]
-                
-            # Ensure prediction is within reasonable bounds (based on min/max of training data)
-            next_features[close_idx] = max(min_price, min(max_price, next_features[close_idx]))
-            
-            # Roll the window forward (depends on the shape of current_window)
-            if current_window.ndim > 2:
-                # Create a new array with the updated features
-                new_window = current_window.copy()
-                # Shift the time steps and replace the last one
-                new_window[0, :-1] = current_window[0, 1:]
-                new_window[0, -1] = next_features
-                current_window = new_window
-            else:
-                print("Warning: Cannot update window, unexpected shape. Using last window for next prediction.")
-        except Exception as e:
-            print(f"Error updating window for next prediction: {e}")
-            print(f"Current window shape: {current_window.shape}, type: {type(current_window)}")
-            # For debugging, print more information
-            print(f"Next features shape: {getattr(next_features, 'shape', 'N/A')}, type: {type(next_features)}")
-            # Use the same window for the next prediction
-    
-    # Convert to numpy arrays
-    predictions = np.array(prices)
-    confidence_intervals = np.array(confidence_intervals)
-    
-    # Reverse the scaling for the predictions and intervals
-    try:
-        # Create a dummy array with the same shape as what the scaler expects
-        dummy = np.zeros((len(predictions), len(features)))
-        # Set the close price column
-        dummy[:, close_idx] = predictions
-        
-        # Inverse transform to get the actual prices
-        dummy_inverse = scaler.inverse_transform(dummy)
-        predictions = dummy_inverse[:, close_idx]
-        
-        # IMPORTANT: Apply price limits again AFTER inverse transform
-        # This ensures the final predictions respect the PSX price limit rules
-        # First day is based on last actual close price
-        predictions[0] = apply_psx_price_limits(predictions[0], last_close_price)
-        # Subsequent days are each based on the previous prediction
-        for i in range(1, len(predictions)):
-            predictions[i] = apply_psx_price_limits(predictions[i], predictions[i-1])
-        
-        # Do the same for confidence intervals
-        dummy_lower = np.zeros((len(confidence_intervals), len(features)))
-        dummy_upper = np.zeros((len(confidence_intervals), len(features)))
-        
-        dummy_lower[:, close_idx] = [x[0] for x in confidence_intervals]
-        dummy_upper[:, close_idx] = [x[1] for x in confidence_intervals]
-        
-        dummy_lower_inverse = scaler.inverse_transform(dummy_lower)
-        dummy_upper_inverse = scaler.inverse_transform(dummy_upper)
-        
-        # Apply price limits to confidence intervals as well
-        for i in range(len(confidence_intervals)):
-            if i == 0:
-                lower_limit = apply_psx_price_limits(dummy_lower_inverse[i, close_idx], last_close_price)
-                upper_limit = apply_psx_price_limits(dummy_upper_inverse[i, close_idx], last_close_price)
-            else:
-                lower_limit = apply_psx_price_limits(dummy_lower_inverse[i, close_idx], predictions[i-1])
-                upper_limit = apply_psx_price_limits(dummy_upper_inverse[i, close_idx], predictions[i-1])
-            confidence_intervals[i] = (lower_limit, upper_limit)
-        
+        df_copy = df.copy()
+        last_date = pd.to_datetime(df_copy['date'].iloc[-1])
+        last_price = df_copy['close'].iloc[-1]
+        print(f"Last known date: {last_date.strftime('%Y-%m-%d')}, Price: {last_price:.2f}")
     except Exception as e:
-        print(f"Warning: Error in inverse transform: {e}")
-        # If there's an error, we'll just return the scaled predictions
+        print(f"Error getting last date/price: {e}")
+        # Use today's date as fallback
+        last_date = datetime.now()
+        # Use a default price if needed - this is just a placeholder
+        last_price = 100.0
+        print(f"Using fallback last date: {last_date.strftime('%Y-%m-%d')}, Price: {last_price:.2f}")
     
-    # Apply market trend adjustments if requested
-    if apply_market_trends and market_adjustment_factor != 0:
-        print(f"\nAdjusting predictions based on market sentiment (factor: {market_adjustment_factor})...")
-        if market_trend_info is None:
-            print("Warning: market_trend_info is None, using neutral sentiment (0.0)")
-            sentiment_score = 0.0
-        else:
-            sentiment_score = market_trend_info[1] if isinstance(market_trend_info, tuple) and len(market_trend_info) > 1 else 0.0
-            print(f"Using market sentiment score: {sentiment_score}")
-            
-        predictions = adjust_prediction_for_market_trend(
-            predictions, 
-            sentiment_score, 
-            adjustment_factor=market_adjustment_factor
-        )
-        print(f"Market-adjusted predictions applied with factor: {market_adjustment_factor}")
+    # Generate future dates for visualization
+    future_dates = generate_weekday_dates(last_date, days_ahead)
     
-    # Generate future dates variable
-    future_dates = []
+    # Last X for prediction
+    current_x = X.copy()
     
-    # Save predictions to reward system
-    if reward_system is not None:
-        print("Saving predictions to the reward system")
+    # Get the index of close price in features
+    close_idx = -1
+    for i, feature in enumerate(features):
+        if feature.lower() == 'close':
+            close_idx = i
+            break
+    
+    # Make sure we have the close price index
+    if close_idx == -1:
+        print("Warning: Could not find 'close' in features, using last value as fallback")
+    
+    # For tracking the cumulative error
+    cumulative_error_factor = 1.0
+    
+    # Initialize current_date with last_date
+    current_date = last_date
+    
+    # Predict for each day ahead
+    for i in range(days_ahead):
+        # Generate next weekday date
+        while True:
+            current_date = current_date + timedelta(days=1)
+            # Skip weekends (0 = Monday, 6 = Sunday)
+            if current_date.weekday() < 5:  # 0-4 are weekdays
+                break
+        
+        future_dates.append(current_date)
+        
+        # Make prediction with current window
+        # Initialize predicted_price_normalized to None to avoid UnboundLocalError
+        predicted_price_normalized = None
+        
         try:
-            # Generate future dates starting from the day after the last date in the dataframe
-            last_date_raw = df_future['date'].iloc[-1]
-            
-            # Convert to datetime object
-            if isinstance(last_date_raw, str):
-                try:
-                    last_date = datetime.strptime(last_date_raw, '%Y-%m-%d')
-                except ValueError:
-                    try:
-                        last_date = datetime.strptime(last_date_raw, '%Y/%m/%d')
-                    except ValueError:
-                        print(f"Warning: Could not parse date format: {last_date_raw}, using current date")
-                        last_date = datetime.now()
-            elif isinstance(last_date_raw, pd.Timestamp):
-                last_date = last_date_raw.to_pydatetime()
-            else:
-                print(f"Warning: Unknown date format: {type(last_date_raw)}, using current date")
-                last_date = datetime.now()
-            
-            # Generate future dates starting from the next day
-            future_dates = [(last_date + timedelta(days=i+1)).strftime('%Y-%m-%d') for i in range(len(predictions))]
-            
-            # Save predictions with future dates
-            for i, date in enumerate(future_dates):
-                if i < len(predictions):  # Make sure the prediction exists
-                    # Create a model version string with relevant parameters
-                    model_version = f"window={window_size},smooth={smoothing_factor}"
-                    if apply_market_trends:
-                        model_version += f",mkt_adj={market_adjustment_factor}"
+            if is_dl_model:
+                # Deep learning models need 3D input (samples, time_steps, features)
+                # Check if current_x has extra dimensions and reshape if needed
+                if len(current_x.shape) > 3:
+                    # Improved reshape logic to handle (1, 358, 10, 73) shape
+                    # First, determine the exact shape needed
+                    expected_shape = (1, window_size, len(features))
                     
-                    # Save the prediction
-                    reward_system.save_prediction(date, predictions[i], model_version=model_version)
+                    # Log the current shape for debugging
+                    print(f"DEBUG: current_x shape before reshape: {current_x.shape}, expected: {expected_shape}")
+                    
+                    # Try different approaches to get the right shape
+                    if current_x.shape[1] > 1 and current_x.shape[2] == window_size:
+                        # If shape is like (1, 358, 10, 73), we need to take just one sample
+                        # Take the most recent window (last index of dimension 1)
+                        current_x_reshaped = current_x[0, -1:, :, :].reshape(1, window_size, len(features))
+                    else:
+                        # Alternative approach - reshape by flattening and rebuilding
+                        try:
+                            # Extract the most recent window_size * features elements and reshape
+                            flattened = current_x.flatten()
+                            elements_needed = window_size * len(features)
+                            current_x_reshaped = flattened[-elements_needed:].reshape(1, window_size, len(features))
+                        except Exception as reshape_error:
+                            print(f"Reshape error: {reshape_error}, trying direct reshape of last elements")
+                            # Last resort - take the last elements directly
+                            current_x_reshaped = current_x[0, 0, :, :].reshape(1, window_size, len(features))
+                    
+                    print(f"DEBUG: Reshaped to: {current_x_reshaped.shape}")
+                    predicted_price_normalized = model.predict(current_x_reshaped)
                 else:
-                    print(f"Warning: No prediction available for date {date} (index {i})")
+                    # If shape is already correct or has 3 dimensions, ensure it's (1, window_size, features)
+                    if len(current_x.shape) == 3 and current_x.shape[0] != 1:
+                        # If batch dimension is not 1, reshape to have batch size of 1
+                        current_x_reshaped = current_x[-1:, :, :].reshape(1, window_size, len(features))
+                        predicted_price_normalized = model.predict(current_x_reshaped)
+                    else:
+                        # Use as is
+                        predicted_price_normalized = model.predict(current_x)
+                    
+                    # Extract prediction value (deep learning models return arrays)
+                    prediction_value = predicted_price_normalized[0][0]
+            else:
+                # Traditional ML models need 2D input (samples, features)
+                # Reshape the 3D input to 2D by flattening the time dimension
+                print(f"Using traditional ML model. Current X shape: {current_x.shape}")
+                if len(current_x.shape) == 3:
+                    # Convert from (1, window_size, features) to (1, window_size*features)
+                    current_x_flat = current_x.reshape(current_x.shape[0], -1)
+                    print(f"Reshaped to 2D: {current_x_flat.shape}")
+                    predicted_price_normalized = model.predict(current_x_flat)
+                elif len(current_x.shape) > 3:
+                    # Handle more complex shapes by taking the most recent window and flattening
+                    if current_x.shape[1] > 1:
+                        # Take the most recent sample
+                        current_x_flat = current_x[0, -1].reshape(1, -1)
+                    else:
+                        current_x_flat = current_x.reshape(1, -1)
+                    print(f"Reshaped complex input to 2D: {current_x_flat.shape}")
+                    predicted_price_normalized = model.predict(current_x_flat)
+                else:
+                    # Already 2D, use as is
+                    predicted_price_normalized = model.predict(current_x)
+                
+                # Extract prediction value (ML models often return 1D arrays)
+                if hasattr(predicted_price_normalized, 'shape'):
+                    if len(predicted_price_normalized.shape) > 0:
+                        prediction_value = predicted_price_normalized[0]
+                    else:
+                        prediction_value = predicted_price_normalized
+                else:
+                    prediction_value = predicted_price_normalized
+            
+            # Convert prediction back to original scale
+            if scaler is not None:
+                # Create a dummy array with the same shape as the training data
+                dummy = np.zeros((1, len(features)))
+                # Put the predicted value in the close price position
+                dummy[0, close_idx] = prediction_value
+                # Inverse transform
+                predicted_price = scaler.inverse_transform(dummy)[0, close_idx]
+            else:
+                predicted_price = prediction_value
+            
+            # Apply smoothing to make predictions more realistic
+            # This uses an exponential moving average approach
+            if i > 0:
+                # The further into the future, the more we smooth
+                adaptive_smoothing = min(0.9, smoothing_factor * (1 + (i * 0.1)))
+                predicted_price = (adaptive_smoothing * predictions[-1]) + ((1 - adaptive_smoothing) * predicted_price)
         except Exception as e:
             print(f"Error during prediction: {e}")
-            print(f"This might be because no model exists for {symbol} yet.")
-    else:
-        # If no reward system, still generate future dates
-        try:
-            last_date_raw = df_future['date'].iloc[-1]
+            # Fallback to a simple forecast based on last price
+            predicted_price = last_price * (1 + (0.001 * (i+1)))  # Small increase
+        
+        # Apply market trend adjustments if available
+        if apply_market_trends and market_trend_info is not None:
+            original_price = predicted_price
             
-            # Convert to datetime object
-            if isinstance(last_date_raw, str):
-                try:
-                    last_date = datetime.strptime(last_date_raw, '%Y-%m-%d')
-                except ValueError:
-                    try:
-                        last_date = datetime.strptime(last_date_raw, '%Y/%m/%d')
-                    except ValueError:
-                        print(f"Warning: Could not parse date format: {last_date_raw}, using current date")
-                        last_date = datetime.now()
-            elif isinstance(last_date_raw, pd.Timestamp):
-                last_date = last_date_raw.to_pydatetime()
+            # market_trend_info is a tuple (market_trends, sentiment_score)
+            # Extract the sentiment score (second element)
+            market_trends = None
+            sentiment_score = 0.0
+            
+            if isinstance(market_trend_info, tuple) and len(market_trend_info) >= 2:
+                market_trends, sentiment_score = market_trend_info
+            elif isinstance(market_trend_info, (int, float)):
+                # If market_trend_info is already a score, use it directly
+                sentiment_score = market_trend_info
+                
+            predicted_price = adjust_prediction_for_market_trend(
+                predicted_price, 
+                sentiment_score,  # Pass sentiment_score instead of market_trend_info
+                adjustment_factor=market_adjustment_factor,
+                previous_close=last_price,  # Add previous_close for better adjustments
+                market_trends=market_trends  # Pass market_trends as well
+            )
+            print(f"Applied market trend adjustment: {original_price:.2f} -> {predicted_price:.2f}")
+        
+        # Apply cumulative error adjustment (models tend to be overconfident further into future)
+        if i > 0:
+            # Increase uncertainty for predictions further in the future
+            cumulative_error_factor *= 1.05  # 5% increase in uncertainty per day
+            
+            # Add some random noise that increases with each future day
+            # This is a simple way to simulate increasing uncertainty
+            noise_factor = 0.005 * i  # 0.5% per day
+            # Ensure the scale parameter is always positive by using absolute value
+            noise = np.random.normal(0, abs(noise_factor * predicted_price))
+            predicted_price += noise
+        
+        # Ensure non-negative price
+        predicted_price = max(0.01, predicted_price)
+        
+        # IMMEDIATE REALITY CHECK: Prevent absurdly large predictions right away
+        # No stock can realistically increase or decrease more than 30% in a single day
+        max_daily_change = 0.30  # 30% maximum daily change
+        if i > 0:
+            previous_prediction = predictions[-1]
+            daily_return = (predicted_price / previous_prediction) - 1
+            
+            if abs(daily_return) > max_daily_change:
+                print(f"WARNING: Detected unrealistic daily change of {daily_return:.2%}")
+                # Limit to maximum allowed daily change
+                predicted_price = previous_prediction * (1 + (max_daily_change * np.sign(daily_return)))
+                print(f"Limiting prediction to {predicted_price:.2f} (max {max_daily_change:.0%} change)")
+        
+        # Also check against starting price for first few days
+        cumulative_return = (predicted_price / last_price) - 1
+        max_total_change = 0.50  # 50% maximum total change for a 5-day period
+        if abs(cumulative_return) > max_total_change:
+            print(f"WARNING: Detected unrealistic cumulative change of {cumulative_return:.2%}")
+            # Limit to maximum allowed change from starting price
+            predicted_price = last_price * (1 + (max_total_change * np.sign(cumulative_return)))
+            print(f"Limiting prediction to {predicted_price:.2f} (max {max_total_change:.0%} total change)")
+        
+        # Calculate confidence interval (wider as we go further into future)
+        base_uncertainty = 0.02  # 2% base uncertainty
+        day_factor = 1 + (i * 0.5)  # Increases with each day
+        uncertainty = base_uncertainty * day_factor * predicted_price
+        confidence_interval = (predicted_price - uncertainty, predicted_price + uncertainty)
+        
+        # Save prediction
+        predictions.append(predicted_price)
+        confidence_intervals.append(confidence_interval)
+        
+        # Save prediction to reward system if provided
+        if reward_system is not None:
+            try:
+                date_str = current_date.strftime('%Y-%m-%d')
+                # Save prediction with model information
+                reward_system.save_prediction(date_str, predicted_price)
+                print(f"Saved prediction for {date_str} to reward system: {predicted_price:.2f} (Model: {reward_system.model_name})")
+            except Exception as e:
+                print(f"Error saving prediction to reward system: {e}")
+        
+        # Update the current_x for next prediction
+        if scaler is not None:
+            # Create a dummy array with the same shape as the training data
+            dummy = np.zeros((1, len(features)))
+            
+            # Fill with the last values from current_x
+            for j in range(len(features)):
+                dummy[0, j] = current_x[0, -1, j]
+            
+            # Update the close price with our prediction
+            # Check if predicted_price_normalized is available
+            if predicted_price_normalized is not None:
+                # Handle different types of predicted_price_normalized based on model type
+                if is_dl_model:
+                    # Deep learning models return arrays
+                    dummy[0, close_idx] = predicted_price_normalized[0][0]
+                else:
+                    # Traditional ML models might return scalars or 1D arrays
+                    if hasattr(predicted_price_normalized, 'shape') and len(predicted_price_normalized.shape) > 0:
+                        # It's an array
+                        dummy[0, close_idx] = predicted_price_normalized[0]
+                    else:
+                        # It's a scalar
+                        dummy[0, close_idx] = predicted_price_normalized
             else:
-                print(f"Warning: Unknown date format: {type(last_date_raw)}, using current date")
-                last_date = datetime.now()
+                # If prediction failed, use the last known price with a small random change
+                # This allows the loop to continue even if one prediction fails
+                random_change = np.random.uniform(-0.005, 0.005)  # Small random change ±0.5%
+                dummy[0, close_idx] = current_x[0, -1, close_idx] * (1 + random_change)
+                print(f"Using fallback prediction due to error")
             
-            # Generate future dates starting from the next day
-            future_dates = [(last_date + timedelta(days=i+1)).strftime('%Y-%m-%d') for i in range(len(predictions))]
-        except Exception as e:
-            print(f"Warning: Could not generate future dates: {e}")
-            # Generate generic dates if we couldn't parse the last date
-            future_dates = [f"Day_{i+1}" for i in range(len(predictions))]
+            # Get the final prediction value and add it to the sequence
+            # This involves shifting the window left and adding new value at the end
+            current_x[0, :-1, :] = current_x[0, 1:, :]
+            current_x[0, -1, :] = dummy[0, :]
+        else:
+            # Simple update without scaling
+            current_x[0, :-1, :] = current_x[0, 1:, :]
+            # Fallback: just copy the last row and update the close price
+            current_x[0, -1, :] = current_x[0, -2, :]
+            current_x[0, -1, close_idx] = predicted_price
     
-    # Identify significant days
-    significant_days = identify_significant_movements(predictions, threshold_pct=2.0)
+    # Check if future_dates is a scalar instead of a list
+    # This can happen if the function had an early return
+    if not isinstance(future_dates, list) or len(future_dates) == 0:
+        print(f"Warning: future_dates is not a list or is empty. Creating new date list. Current value: {future_dates}")
+        # Generate dates starting from last_date
+        future_dates = []
+        current_date = last_date
+        for i in range(days_ahead):
+            # Generate next weekday date
+            while True:
+                current_date = current_date + timedelta(days=1)
+                # Skip weekends (0 = Monday, 6 = Sunday)
+                if current_date.weekday() < 5:  # 0-4 are weekdays
+                    break
+            future_dates.append(current_date)
     
-    # Return the predictions, confidence intervals, significant days, and future dates
+    # Make sure predictions and future_dates have the same length
+    if len(predictions) != len(future_dates):
+        print(f"Warning: predictions ({len(predictions)}) and future_dates ({len(future_dates)}) have different lengths. Adjusting...")
+        # Use the shorter length
+        min_length = min(len(predictions), len(future_dates))
+        predictions = predictions[:min_length]
+        future_dates = future_dates[:min_length]
+    
+    # If we have only one prediction but it's a float, convert it to a list
+    if isinstance(predictions, (float, np.float64, np.float32)):
+        predictions = [float(predictions)]
+    
+    # Initialize significant_days if it doesn't exist
+    if 'significant_days' not in locals():
+        significant_days = []
+    
+    # Return values according to the updated function documentation
     return predictions, confidence_intervals, significant_days, future_dates
 
 
-def apply_psx_price_limits(predicted_price, previous_price):
+def apply_psx_price_limits(predicted_price, reference_price, market_direction=None):
     """
-    Apply Pakistan Stock Exchange (PSX) price limit rules
+    Apply Pakistan Stock Exchange (PSX) circuit breaker limits to predicted prices
     
-    PSX Rules:
-    - Upper cap: +10% or 1 PKR (whichever is higher)
-    - Lower cap: -10% or 1 PKR (whichever is higher in absolute terms)
+    PSX has circuit breakers that limit daily price movements to +/- 7.5% of the previous day's close
+    This function ensures predictions stay within these realistic limits
     
     Args:
-        predicted_price (float): Predicted price
-        previous_price (float): Previous day's price
+        predicted_price (float): The predicted price
+        reference_price (float): The reference price (usually previous day's close)
+        market_direction (str): Market direction ('up', 'down', or None)
         
     Returns:
-        float: Price adjusted according to PSX rules
+        float: The price after applying circuit breaker limits
     """
-    # Calculate percentage-based limits
-    upper_limit_pct = previous_price * 1.10  # +10%
-    lower_limit_pct = previous_price * 0.90  # -10%
+    # Default circuit breaker limits for PSX (7.5%)
+    DEFAULT_LIMIT = 0.075
     
-    # Calculate absolute value limits
-    upper_limit_abs = previous_price + 1  # +1 PKR
-    lower_limit_abs = previous_price - 1  # -1 PKR
+    # If reference price is not provided or invalid, return the predicted price as is
+    if reference_price is None or not isinstance(reference_price, (int, float)) or reference_price <= 0:
+        return predicted_price
     
-    # Use the higher of the percentage or absolute limits
-    upper_limit = max(upper_limit_pct, upper_limit_abs)
-    # For lower limit, we want the higher value (less negative change)
-    lower_limit = min(lower_limit_pct, lower_limit_abs)
+    # Calculate upper and lower limits
+    upper_limit = reference_price * (1 + DEFAULT_LIMIT)
+    lower_limit = reference_price * (1 - DEFAULT_LIMIT)
     
-    # Apply the limits
+    # Apply market direction bias if provided
+    if market_direction == 'up':
+        # In an upward market, bias toward the upper limit
+        upper_limit = reference_price * (1 + DEFAULT_LIMIT)
+        lower_limit = reference_price * (1 - (DEFAULT_LIMIT * 0.8))  # Less downside
+    elif market_direction == 'down':
+        # In a downward market, bias toward the lower limit
+        upper_limit = reference_price * (1 + (DEFAULT_LIMIT * 0.8))  # Less upside
+        lower_limit = reference_price * (1 - DEFAULT_LIMIT)
+    
+    # Apply limits
     if predicted_price > upper_limit:
         return upper_limit
     elif predicted_price < lower_limit:
@@ -590,47 +775,19 @@ def apply_psx_price_limits(predicted_price, previous_price):
         return predicted_price
 
 
-def identify_significant_movements(predictions, threshold_pct=2.0):
+def visualize_predictions_advanced(df, predictions, confidence_intervals, significant_days, symbol, future_dates, days_ahead, market_trend_info=None):
     """
-    Identify significant price movements in the predictions
-    
-    Args:
-        predictions (np.array): Predicted prices
-        threshold_pct (float): Threshold percentage change to consider a movement significant
-        
-    Returns:
-        dict: Dictionary with 'up' and 'down' keys containing indices of days with significant up/down movements
-    """
-    significant_days = {'up': [], 'down': []}
-    
-    # Calculate daily percentage changes
-    pct_changes = np.diff(predictions) / predictions[:-1] * 100
-    
-    # Find days with changes exceeding the threshold
-    for i, pct_change in enumerate(pct_changes):
-        if abs(pct_change) >= threshold_pct:
-            # +1 because diff reduces array length by 1, but make sure it doesn't exceed array bounds
-            if i + 1 < len(predictions):
-                if pct_change > 0:
-                    significant_days['up'].append(i + 1)
-                else:
-                    significant_days['down'].append(i + 1)
-    
-    return significant_days
-
-
-def visualize_predictions_advanced(df, predictions, confidence_intervals, significant_days, symbol, future_dates, days_ahead):
-    """
-    Visualize historical data with predictions and confidence intervals
+    Visualize the predictions with confidence intervals and significant days
     
     Args:
         df: DataFrame with historical data
-        predictions: List of predicted prices
-        confidence_intervals: List of tuples (lower, upper) for confidence intervals
-        significant_days: List of tuples (day_index, movement) for significant price movements
+        predictions: Predicted prices
+        confidence_intervals: Confidence intervals for predictions
+        significant_days: Days where significant price changes are expected
         symbol: Stock symbol
-        future_dates: List of future dates for predictions
-        days_ahead: Number of days predicted ahead
+        future_dates: Dates for the predictions
+        days_ahead: Number of days ahead predicted
+        market_trend_info: Tuple containing market trend information (trends, sentiment_score)
     """
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -674,29 +831,43 @@ def visualize_predictions_advanced(df, predictions, confidence_intervals, signif
     
     # Plot predictions and confidence intervals
     # Filter out weekends from future dates for better visualization
-    valid_indices = [i for i, date in enumerate(future_dates) 
-                    if isinstance(date, datetime) and date.weekday() < 5]
+    valid_indices = []
+    
+    # Check if future_dates is iterable
+    if isinstance(future_dates, (list, tuple, np.ndarray)) and not isinstance(future_dates, (float, np.float64, np.float32)):
+        valid_indices = [i for i, date in enumerate(future_dates) 
+                        if isinstance(date, datetime) and date.weekday() < 5]
+    else:
+        print(f"Warning: future_dates is not iterable (type: {type(future_dates)}). Skipping visualization.")
+        # Return early if we can't visualize
+        return None
     
     if valid_indices:
         # Make sure predictions follow PSX rules sequentially for visualization
         # Create a copy to avoid modifying the original predictions
-        last_close_price = df['close'].iloc[-1]
+        last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
         visualized_predictions = predictions.copy()
         visualized_confidence = confidence_intervals.copy()
         
-        # Apply price limits to predictions used for visualization
-        visualized_predictions[0] = apply_psx_price_limits(visualized_predictions[0], last_close_price)
-        for i in range(1, len(visualized_predictions)):
-            visualized_predictions[i] = apply_psx_price_limits(visualized_predictions[i], visualized_predictions[i-1])
+        # Get market direction if available
+        if market_trend_info is not None and isinstance(market_trend_info, tuple) and len(market_trend_info) > 0:
+            market_direction = market_trend_info[0].get('market_direction', 'unknown') if isinstance(market_trend_info[0], dict) else 'unknown'
+        else:
+            market_direction = 'unknown'
         
-        # Apply price limits to confidence intervals as well
+        # Apply price limits to predictions used for visualization
+        visualized_predictions[0] = apply_psx_price_limits(visualized_predictions[0], last_close_price, market_direction=market_direction)
+        for i in range(1, len(visualized_predictions)):
+            visualized_predictions[i] = apply_psx_price_limits(visualized_predictions[i], visualized_predictions[i-1], market_direction=market_direction)
+        
+        # Apply limits to confidence intervals
         for i in range(len(visualized_confidence)):
             if i == 0:
-                lower_limit = apply_psx_price_limits(visualized_confidence[i][0], last_close_price)
-                upper_limit = apply_psx_price_limits(visualized_confidence[i][1], last_close_price)
+                lower_limit = apply_psx_price_limits(visualized_confidence[i][0], last_close_price, market_direction=market_direction)
+                upper_limit = apply_psx_price_limits(visualized_confidence[i][1], last_close_price, market_direction=market_direction)
             else:
-                lower_limit = apply_psx_price_limits(visualized_confidence[i][0], visualized_predictions[i-1])
-                upper_limit = apply_psx_price_limits(visualized_confidence[i][1], visualized_predictions[i-1])
+                lower_limit = apply_psx_price_limits(visualized_confidence[i][0], visualized_predictions[i-1], market_direction=market_direction)
+                upper_limit = apply_psx_price_limits(visualized_confidence[i][1], visualized_predictions[i-1], market_direction=market_direction)
             visualized_confidence[i] = (lower_limit, upper_limit)
         
         valid_dates = [future_dates[i] for i in valid_indices]
@@ -711,15 +882,23 @@ def visualize_predictions_advanced(df, predictions, confidence_intervals, signif
         plt.fill_between(valid_dates, lower_bounds, upper_bounds, color='red', alpha=0.2, label='Confidence Interval')
         
         # Mark significant movements if present
-        for movement_type, days in significant_days.items():
-            for day in days:
-                if 0 <= day < len(valid_indices):
-                    idx = valid_indices.index(day) if day in valid_indices else None
-                    if idx is not None and idx < len(valid_pred):
-                        marker_color = 'green' if movement_type == 'up' else 'red'
-                        marker_style = '^' if movement_type == 'up' else 'v'
-                        plt.plot(valid_dates[idx], valid_pred[idx], marker=marker_style, color=marker_color, 
-                                markersize=10, label=f'Significant {movement_type}' if idx == 0 else "")
+        if significant_days:
+            if isinstance(significant_days, dict):
+                # Handle dictionary format
+                for movement_type, days in significant_days.items():
+                    for day in days:
+                        if 0 <= day < len(valid_indices):
+                            idx = valid_indices.index(day) if day in valid_indices else None
+                            if idx is not None and idx < len(valid_pred):
+                                marker_color = 'green' if movement_type == 'up' else 'red'
+                                plt.plot(valid_dates[idx], valid_pred[idx], marker='o', markersize=8, color=marker_color)
+            elif isinstance(significant_days, list):
+                # Handle list format - assume all are significant without specific type
+                for day in significant_days:
+                    if 0 <= day < len(valid_indices):
+                        idx = valid_indices.index(day) if day in valid_indices else None
+                        if idx is not None and idx < len(valid_pred):
+                            plt.plot(valid_dates[idx], valid_pred[idx], marker='o', markersize=8, color='purple')
     
     # Format the plot
     plt.title(f'{symbol} Stock Price Prediction for {days_ahead} days')
@@ -746,18 +925,31 @@ def visualize_predictions_advanced(df, predictions, confidence_intervals, signif
         print(f"Change: {change:.2f} ({percent_change:.2f}%)")
     
     print("\nSignificant price movements predicted on:")
-    for movement_type, days in significant_days.items():
-        for day in days:
-            if 0 <= day < len(future_dates):
-                date = future_dates[day]
-                # Format the date safely using our helper function
-                date_str = format_date_safely(date)
-                print(f"  {date_str}: {movement_type}")
+    if significant_days:
+        if isinstance(significant_days, dict):
+            # Handle dictionary format
+            for movement_type, days in significant_days.items():
+                for day in days:
+                    if 0 <= day < len(future_dates):
+                        date = future_dates[day]
+                        # Format the date safely using our helper function
+                        date_str = format_date_safely(date)
+                        print(f"  {date_str}: {movement_type}")
+        elif isinstance(significant_days, list):
+            # Handle list format - assume all are significant without specific type
+            for day in significant_days:
+                if 0 <= day < len(future_dates):
+                    date = future_dates[day]
+                    # Format the date safely using our helper function
+                    date_str = format_date_safely(date)
+                    print(f"  {date_str}: significant movement")
     
     plt.close()
 
 
-def predict_future(model, df, scaler, features, days=7, window_size=10):
+def predict_future(model, df, scaler, features, days=7, window_size=10, is_dl_model=True, 
+               smoothing_factor=0.7, apply_market_trends=True, market_adjustment_factor=0.03, 
+               market_trend_info=None, reward_system=None):
     """
     Make predictions for future days
     
@@ -768,6 +960,12 @@ def predict_future(model, df, scaler, features, days=7, window_size=10):
         features (list): List of features used for prediction
         days (int): Number of days to predict ahead
         window_size (int): Window size for sequences
+        is_dl_model (bool): Whether the model is a deep learning model (True) or traditional ML model (False)
+        smoothing_factor (float): Factor for smoothing predictions (0.0-1.0)
+        apply_market_trends (bool): Whether to apply market trend adjustments
+        market_adjustment_factor (float): Factor for market trend adjustments
+        market_trend_info (dict): Market trend information
+        reward_system (PredictionRewardSystem): System for tracking and rewarding predictions
         
     Returns:
         tuple: (predictions, dates) - Array of predictions and corresponding dates
@@ -776,9 +974,11 @@ def predict_future(model, df, scaler, features, days=7, window_size=10):
         # Prepare data for prediction
         X, scaled_data = prepare_prediction_data(df, features, scaler, window_size)
         
-        if X is None:
+        if X is None or len(X) == 0:
+            print("Error: Failed to prepare prediction data")
+            record_failed_prediction(symbol, "Failed to prepare prediction data")
             return None, None
-        
+            
         # Create future dates for visualization
         last_date_raw = df['date'].iloc[-1]
         
@@ -799,130 +999,220 @@ def predict_future(model, df, scaler, features, days=7, window_size=10):
         
         # Print the last date from the dataset to clearly show when predictions start from
         print(f"\nIMPORTANT: Last date in historical data: {last_date.strftime('%Y-%m-%d')}")
-        print(f"Predictions will start from: {(last_date + timedelta(days=1)).strftime('%Y-%m-%d')}")
         
-        future_dates = [(last_date + timedelta(days=i+1)).strftime('%Y-%m-%d') for i in range(days)]
+        # Calculate the next weekday
+        next_date = last_date + timedelta(days=1)
+        while next_date.weekday() >= 5:  # Skip weekend days
+            next_date += timedelta(days=1)
+            
+        print(f"Predictions will start from: {next_date.strftime('%Y-%m-%d')} (next weekday)")
+        
+        future_dates = generate_weekday_dates(last_date, days)
+        
+        # Get market trend information if not provided
+        if market_trend_info is None and apply_market_trends:
+            try:
+                market_trend_info = get_market_trend_analysis(symbol)
+            except Exception as e:
+                print(f"Warning: Error getting market trend information: {e}")
+                print("Continuing without market trend adjustments")
+                apply_market_trends = False
+        
+        # If we have a reward system, update its model information
+        if reward_system is not None:
+            print(f"Using model '{model_name}' for predictions")
+            # Update reward system with model info for future reference
+            if hasattr(reward_system, 'set_model_info') and callable(getattr(reward_system, 'set_model_info', None)):
+                try:
+                    reward_system.set_model_info(model_type, model_name)
+                except Exception as e:
+                    print(f"Warning: Could not update reward system with model info: {e}")
         
         # Predict future prices
         predictions, confidence_intervals, significant_days, future_dates = predict_future_prices_advanced(
-            model, X, df, scaler, features, days_ahead=days, window_size=window_size, market_trend_info=None
+            model, X, df, scaler, features, 
+            days_ahead=days, 
+            smoothing_factor=smoothing_factor,
+            apply_market_trends=apply_market_trends,
+            market_adjustment_factor=market_adjustment_factor,
+            market_trend_info=market_trend_info,
+            reward_system=reward_system,
+            window_size=window_size,
+            is_dl_model=is_dl_model  # Pass the is_dl_model parameter
         )
         
-        return predictions, future_dates
+        if predictions is None:
+            print("Error: Failed to make predictions")
+            record_failed_prediction(symbol, "Failed to make predictions")
+            return None
+        
+        # Check for different volatility regimes
+        if df is not None and len(df) >= 30:
+            # Calculate historical volatility over different windows
+            try:
+                print("\nHistorical volatility analysis:")
+                close_prices = get_column_case_insensitive(df, 'Close').values[-30:]
+                returns = np.diff(close_prices) / close_prices[:-1]
+                volatility = np.std(returns) * 100  # Convert to percentage
+                print(f"30-day historical volatility: {volatility:.2f}%")
+            except Exception as e:
+                print(f"Warning: Error during volatility analysis: {e}")
+        
+        # Apply final validation and reality check if enabled
+        if reality_check:
+            print("\nPerforming final reality check on predictions...")
+            try:
+                # Get the closing price from whichever data source is available
+                if df is not None:
+                    last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
+                else:
+                    # If df is not available, try to use close from df_with_indicators
+                    last_close_price = get_column_case_insensitive(df_with_indicators, 'Close').iloc[-1]
+                
+                is_realistic, warnings, adjusted_predictions = validate_predictions_against_reality(
+                    predictions, 
+                    last_close_price, 
+                    df=df if df is not None else df_with_indicators
+                )
+                
+                if not is_realistic and len(warnings) > 0:
+                    print("Adjusting predictions after reality check...")
+                    predictions = adjusted_predictions
+                    confidence_intervals = [(adj_pred * 0.95, adj_pred * 1.05) for adj_pred in adjusted_predictions]
+                    
+                    # Recalculate significant days with the adjusted predictions
+                    significant_days = identify_significant_movements(predictions, threshold_pct=threshold)
+            except Exception as e:
+                print(f"Warning: Error during reality check: {e}")
+                print("Continuing with original predictions")
+        
+        # Try a second model with different parameters if predictions look unrealistic
+        if predictions is not None and len(predictions) >= days_ahead and apply_market_trends:
+            # Check if all predictions are going in the same direction
+            all_increasing = all(predictions[i] >= predictions[i-1] for i in range(1, len(predictions)))
+            all_decreasing = all(predictions[i] <= predictions[i-1] for i in range(1, len(predictions)))
+            
+            if (all_increasing or all_decreasing) and days_ahead >= 4:
+                print("\nDetected potentially unrealistic prediction pattern (all increasing or all decreasing)")
+                print("Trying alternative prediction with stricter mean reversion...")
+                
+                # Try again with a lower smoothing factor and market adjustment
+                new_smoothing = max(0.3, smoothing_factor - 0.2)
+                new_market_adj = market_adjustment_factor * 0.5
+                
+                # Get a second opinion
+                new_predictions, new_intervals, new_significant, new_dates = predict_future_prices_advanced(
+                    model, X, df_with_indicators, scaler, features, days_ahead=days_ahead,
+                    smoothing_factor=new_smoothing,
+                    apply_market_trends=apply_market_trends,
+                    market_adjustment_factor=new_market_adj,
+                    market_trend_info=market_trend_info,
+                    reward_system=reward_system,
+                    window_size=window_size,
+                    is_dl_model=is_dl_model  # Pass the is_dl_model parameter
+                )
+                
+                # Check if the new prediction passes a basic reality check
+                try:
+                    # Get the closing price from whichever data source is available
+                    if df is not None:
+                        last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
+                    else:
+                        # If df is not available, try to use close from df_with_indicators
+                        last_close_price = get_column_case_insensitive(df_with_indicators, 'Close').iloc[-1]
+                    
+                    is_realistic, _, _ = validate_predictions_against_reality(
+                        new_predictions, 
+                        last_close_price, 
+                        df=df if df is not None else df_with_indicators
+                    )
+                    
+                    if is_realistic:
+                        print("Using alternative prediction with stricter parameters")
+                        predictions = new_predictions
+                        confidence_intervals = new_intervals
+                        significant_days = new_significant
+                    else:
+                        print("Alternative prediction also didn't pass reality check. Using original with adjustments.")
+                except Exception as e:
+                    print(f"Warning: Error checking alternative predictions: {e}")
+                    print("Continuing with original predictions")
+        
+        # Create company-specific model directory
+        company_model_dir = os.path.join('models', symbol)
+        os.makedirs(company_model_dir, exist_ok=True)
+        
+        # Visualize predictions
+        visualize_predictions_advanced(
+            df_with_indicators, predictions, confidence_intervals, 
+            significant_days, symbol, future_dates, days_ahead, market_trend_info
+        )
+        
+        # Send predictions to API
+        try:
+            # Get the last close price
+            if df_with_indicators is not None:
+                last_close_price = get_column_case_insensitive(df_with_indicators, 'Close').iloc[-1]
+            elif df is not None:
+                last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
+            else:
+                last_close_price = None
+                
+            # Send predictions to API
+            send_predictions_to_api(symbol, predictions, future_dates, last_close_price, df_with_indicators)
+        except Exception as e:
+            print(f"Warning: Error sending predictions to API: {e}")
+        
+        # Print results
+        print(f"Successfully completed prediction for {symbol}")
+        return predictions, confidence_intervals, significant_days, future_dates
     
     except Exception as e:
-        print(f"Error during future predictions: {e}")
-        return None, None
+        print(f"Unexpected error during prediction for {symbol}: {e}")
+        record_failed_prediction(symbol, f"Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
-def analyze_predictions(predictions, dates, threshold=2.0):
+def record_failed_prediction(symbol, reason):
     """
-    Analyze predictions for significant movements
+    Record a failed prediction attempt in failed_companies.txt
     
     Args:
-        predictions (np.array): Predicted prices
-        dates (list): List of dates corresponding to predictions
-        threshold (float): Threshold percentage for significant movements
-    """
-    # Calculate daily percentage changes
-    pct_changes = np.diff(predictions) / predictions[:-1] * 100
-    
-    # Print predictions
-    print(f"\nPredictions for the next {len(predictions)} days:")
-    for i, (date, price) in enumerate(zip(dates, predictions)):
-        movement = ""
-        if i > 0:
-            pct_change = pct_changes[i-1]
-            if abs(pct_change) >= threshold:
-                movement = f" ⚠️ SIGNIFICANT MOVEMENT: {pct_change:.2f}%"
-        
-        # Format the date safely using our helper function
-        date_str = format_date_safely(date)
-        print(f"  {date_str}: {price:.2f}{movement}")
-
-
-def plot_predictions(df, predictions, dates, symbol, model_dir):
-    """
-    Create a visualization of predicted prices
-    
-    Args:
-        df (pd.DataFrame): DataFrame with historical data
-        predictions (list): List of predicted prices
-        dates (list): List of dates for predictions
         symbol (str): Stock symbol
-        model_dir (str): Directory to save the plot
-        
-    Returns:
-        str: Path to the saved visualization
+        reason (str): Reason for failure
     """
-    # Convert to numpy arrays
-    hist_dates = pd.to_datetime(df['date']).values
-    hist_prices = df['close'].values
-    
-    # Create the plot
-    plt.figure(figsize=(12, 6))
-    
-    # Plot historical data
-    plt.plot(hist_dates, hist_prices, label='Historical Data', color='blue')
-    
-    # Plot predictions
-    plt.plot(dates, predictions, label='Predictions', color='red', linestyle='--')
-    
-    # Add markers for predictions
-    plt.scatter(dates, predictions, color='red', marker='o')
-    
-    # Add price annotations
-    for i, (date, price) in enumerate(zip(dates, predictions)):
-        plt.annotate(f'PKR {price:.2f}', 
-                   (date, price), 
-                   textcoords="offset points",
-                   xytext=(0,10), 
-                   ha='center')
-    
-    # Add labels and title
-    plt.title(f'{symbol} Stock Price Prediction')
-    plt.xlabel('Date')
-    plt.ylabel('Price')
-    plt.legend()
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    
-    # Create base model directory if it doesn't exist
-    os.makedirs(model_dir, exist_ok=True)
-    
-    # Create company-specific model directory
-    company_model_dir = os.path.join(model_dir, symbol)
-    os.makedirs(company_model_dir, exist_ok=True)
-    
-    # Save the plot
-    plot_path = os.path.join(company_model_dir, "future_prediction.png")
-    plt.savefig(plot_path)
-    plt.close()
-    
-    print(f"Saved prediction plot to {plot_path}")
-    return plot_path
+    try:
+        with open('failed_companies.txt', 'a') as f:
+            f.write(f"{symbol}\n")
+        print(f"Recorded {symbol} in failed_companies.txt - Reason: {reason}")
+    except Exception as e:
+        print(f"Error recording failed prediction: {e}")
 
 
 def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0, 
          smoothing_factor=0.7, apply_market_trends=True, market_adjustment_factor=0.03,
-         market_trend_info=None, reward_system=None, df_with_indicators=None):
+         market_trend_info=None, reward_system=None, df_with_indicators=None,
+         reality_check=True):
     """
-    Main function for predicting stock prices
+    Main function to predict future stock prices
     
     Args:
         symbol (str): Stock symbol
-        window_size (int): Window size for sequences
+        window_size (int): Number of previous days to use for prediction
         days_ahead (int): Number of days ahead to predict
-        threshold (float): Threshold percentage for significant price movements
-        smoothing_factor (float): Smoothing factor for predictions (0.0-1.0)
+        threshold (float): Threshold percentage for significant movements
+        smoothing_factor (float): Factor for smoothing predictions (0.0-1.0)
         apply_market_trends (bool): Whether to apply market trend adjustments
-        market_adjustment_factor (float): Factor for market trend adjustments
-        market_trend_info (dict): Market trend information if pre-calculated
-        reward_system (PredictionRewardSystem): Reward system for tracking predictions
-        df_with_indicators (pd.DataFrame): DataFrame with pre-calculated technical indicators
-    
+        market_adjustment_factor (float): Factor controlling how much market trends affect predictions
+        market_trend_info (tuple): Market trend information (optional)
+        reward_system (PredictionRewardSystem): Optional reward system instance
+        df_with_indicators (pd.DataFrame): Pre-calculated technical indicators (optional)
+        reality_check (bool): Whether to validate predictions against historical patterns
+        
     Returns:
-        tuple: (predictions, confidence_intervals, significant_days, future_dates) or None if error
+        None
     """
     try:
         if symbol is None:
@@ -976,7 +1266,42 @@ def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0,
             print(f"Error: Failed to load model for {symbol}")
             record_failed_prediction(symbol, "Failed to load model or metadata")
             return None
-        
+            
+        # Determine if the model is a deep learning model
+        # We need to check if we're using a model selected by the model_selection system
+        is_dl_model = True  # Default to True for backward compatibility
+        best_model_info_path = os.path.join('models', symbol, "best_model_info.json")
+        if os.path.exists(best_model_info_path):
+            try:
+                with open(best_model_info_path, 'r') as f:
+                    best_model_info = json.load(f)
+                is_dl_model = best_model_info.get('is_dl_model', True)
+                model_name = best_model_info.get('model_name', "Unknown")
+                model_type = best_model_info.get('best_model_type', "Unknown")
+                print(f"Model determined from best_model_info: {model_name} ({model_type})")
+                print(f"Model type: {'Deep Learning' if is_dl_model else 'Traditional ML'}")
+            except Exception as e:
+                print(f"Warning: Could not determine model type from best_model_info: {e}")
+                print("Defaulting to Deep Learning model type")
+                model_name = "Unknown"
+                model_type = "Unknown"
+        else:
+            # If no best_model_info, try to guess based on file extension
+            if hasattr(model, '__module__') and 'keras' in model.__module__:
+                is_dl_model = True
+                model_name = "Deep Learning (Keras)"
+                model_type = "Unknown Deep Learning"
+                print("Model determined to be Deep Learning based on model class")
+            elif hasattr(model, 'predict_proba') or hasattr(model, 'feature_importances_'):
+                is_dl_model = False
+                model_name = "Traditional ML"
+                model_type = "Unknown Traditional ML"
+                print("Model determined to be Traditional ML based on model attributes")
+            else:
+                print("Could not determine model type, defaulting to Deep Learning")
+                model_name = "Unknown Model Type"
+                model_type = "Unknown"
+                
         # Load or use provided data with indicators
         if df_with_indicators is None:
             # Load stock data
@@ -1000,18 +1325,27 @@ def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0,
                 return None
         else:
             print("Using pre-calculated technical indicators")
+            # Make sure df is defined even when using pre-calculated indicators
+            try:
+                # Try to use df_with_indicators as df, as it should have the core data too
+                df = df_with_indicators.copy()
+            except Exception as e:
+                print(f"Warning: Could not create df from df_with_indicators: {e}")
+                # In this case, we should load the stock data separately
+                try:
+                    df = load_stock_data(symbol, apply_rules=True)
+                    if df is None or len(df) == 0:
+                        print(f"Warning: Could not load stock data for {symbol}, volatility analysis may be skipped")
+                        # Create a minimal df to avoid errors
+                        df = df_with_indicators[['date', 'close']].copy() if 'date' in df_with_indicators.columns and 'close' in df_with_indicators.columns else None
+                except Exception as load_error:
+                    print(f"Warning: Error loading stock data: {load_error}")
+                    # Create a minimal df to avoid errors
+                    df = df_with_indicators[['date', 'close']].copy() if 'date' in df_with_indicators.columns and 'close' in df_with_indicators.columns else None
         
         if df_with_indicators is None or len(df_with_indicators) == 0:
             print(f"Error: Failed to calculate technical indicators for {symbol}")
             record_failed_prediction(symbol, "Technical indicators calculation returned empty result")
-            return None
-        
-        # Prepare data for prediction
-        X, scaled_data = prepare_prediction_data(df_with_indicators, features, scaler, window_size)
-        
-        if X is None or len(X) == 0:
-            print("Error: Failed to prepare prediction data")
-            record_failed_prediction(symbol, "Failed to prepare prediction data")
             return None
         
         # Get market trend information if not provided
@@ -1023,6 +1357,24 @@ def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0,
                 print("Continuing without market trend adjustments")
                 apply_market_trends = False
         
+        # Prepare data for prediction
+        X, scaled_data = prepare_prediction_data(df_with_indicators, features, scaler, window_size)
+        
+        if X is None or len(X) == 0:
+            print("Error: Failed to prepare prediction data")
+            record_failed_prediction(symbol, "Failed to prepare prediction data")
+            return None
+        
+        # If we have a reward system, update its model information
+        if reward_system is not None:
+            print(f"Using model '{model_name}' for predictions")
+            # Update reward system with model info for future reference
+            if hasattr(reward_system, 'set_model_info') and callable(getattr(reward_system, 'set_model_info', None)):
+                try:
+                    reward_system.set_model_info(model_type, model_name)
+                except Exception as e:
+                    print(f"Warning: Could not update reward system with model info: {e}")
+        
         # Predict future prices
         predictions, confidence_intervals, significant_days, future_dates = predict_future_prices_advanced(
             model, X, df_with_indicators, scaler, features, 
@@ -1032,13 +1384,106 @@ def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0,
             market_adjustment_factor=market_adjustment_factor,
             market_trend_info=market_trend_info,
             reward_system=reward_system,
-            window_size=window_size
+            window_size=window_size,
+            is_dl_model=is_dl_model  # Pass the is_dl_model parameter
         )
         
         if predictions is None:
             print("Error: Failed to make predictions")
             record_failed_prediction(symbol, "Failed to make predictions")
             return None
+        
+        # Check for different volatility regimes
+        if df is not None and len(df) >= 30:
+            # Calculate historical volatility over different windows
+            try:
+                print("\nHistorical volatility analysis:")
+                close_prices = get_column_case_insensitive(df, 'Close').values[-30:]
+                returns = np.diff(close_prices) / close_prices[:-1]
+                volatility = np.std(returns) * 100  # Convert to percentage
+                print(f"30-day historical volatility: {volatility:.2f}%")
+            except Exception as e:
+                print(f"Warning: Error during volatility analysis: {e}")
+        
+        # Apply final validation and reality check if enabled
+        if reality_check:
+            print("\nPerforming final reality check on predictions...")
+            try:
+                # Get the closing price from whichever data source is available
+                if df is not None:
+                    last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
+                else:
+                    # If df is not available, try to use close from df_with_indicators
+                    last_close_price = get_column_case_insensitive(df_with_indicators, 'Close').iloc[-1]
+                
+                is_realistic, warnings, adjusted_predictions = validate_predictions_against_reality(
+                    predictions, 
+                    last_close_price, 
+                    df=df if df is not None else df_with_indicators
+                )
+                
+                if not is_realistic and len(warnings) > 0:
+                    print("Adjusting predictions after reality check...")
+                    predictions = adjusted_predictions
+                    confidence_intervals = [(adj_pred * 0.95, adj_pred * 1.05) for adj_pred in adjusted_predictions]
+                    
+                    # Recalculate significant days with the adjusted predictions
+                    significant_days = identify_significant_movements(predictions, threshold_pct=threshold)
+            except Exception as e:
+                print(f"Warning: Error during reality check: {e}")
+                print("Continuing with original predictions")
+        
+        # Try a second model with different parameters if predictions look unrealistic
+        if predictions is not None and len(predictions) >= days_ahead and apply_market_trends:
+            # Check if all predictions are going in the same direction
+            all_increasing = all(predictions[i] >= predictions[i-1] for i in range(1, len(predictions)))
+            all_decreasing = all(predictions[i] <= predictions[i-1] for i in range(1, len(predictions)))
+            
+            if (all_increasing or all_decreasing) and days_ahead >= 4:
+                print("\nDetected potentially unrealistic prediction pattern (all increasing or all decreasing)")
+                print("Trying alternative prediction with stricter mean reversion...")
+                
+                # Try again with a lower smoothing factor and market adjustment
+                new_smoothing = max(0.3, smoothing_factor - 0.2)
+                new_market_adj = market_adjustment_factor * 0.5
+                
+                # Get a second opinion
+                new_predictions, new_intervals, new_significant, new_dates = predict_future_prices_advanced(
+                    model, X, df_with_indicators, scaler, features, days_ahead=days_ahead,
+                    smoothing_factor=new_smoothing,
+                    apply_market_trends=apply_market_trends,
+                    market_adjustment_factor=new_market_adj,
+                    market_trend_info=market_trend_info,
+                    reward_system=reward_system,
+                    window_size=window_size,
+                    is_dl_model=is_dl_model  # Pass the is_dl_model parameter
+                )
+                
+                # Check if the new prediction passes a basic reality check
+                try:
+                    # Get the closing price from whichever data source is available
+                    if df is not None:
+                        last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
+                    else:
+                        # If df is not available, try to use close from df_with_indicators
+                        last_close_price = get_column_case_insensitive(df_with_indicators, 'Close').iloc[-1]
+                    
+                    is_realistic, _, _ = validate_predictions_against_reality(
+                        new_predictions, 
+                        last_close_price, 
+                        df=df if df is not None else df_with_indicators
+                    )
+                    
+                    if is_realistic:
+                        print("Using alternative prediction with stricter parameters")
+                        predictions = new_predictions
+                        confidence_intervals = new_intervals
+                        significant_days = new_significant
+                    else:
+                        print("Alternative prediction also didn't pass reality check. Using original with adjustments.")
+                except Exception as e:
+                    print(f"Warning: Error checking alternative predictions: {e}")
+                    print("Continuing with original predictions")
         
         # Create company-specific model directory
         company_model_dir = os.path.join('models', symbol)
@@ -1047,9 +1492,25 @@ def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0,
         # Visualize predictions
         visualize_predictions_advanced(
             df_with_indicators, predictions, confidence_intervals, 
-            significant_days, symbol, future_dates, days_ahead
+            significant_days, symbol, future_dates, days_ahead, market_trend_info
         )
         
+        # Send predictions to API
+        try:
+            # Get the last close price
+            if df_with_indicators is not None:
+                last_close_price = get_column_case_insensitive(df_with_indicators, 'Close').iloc[-1]
+            elif df is not None:
+                last_close_price = get_column_case_insensitive(df, 'Close').iloc[-1]
+            else:
+                last_close_price = None
+                
+            # Send predictions to API
+            send_predictions_to_api(symbol, predictions, future_dates, last_close_price, df_with_indicators)
+        except Exception as e:
+            print(f"Warning: Error sending predictions to API: {e}")
+        
+        # Print results
         print(f"Successfully completed prediction for {symbol}")
         return predictions, confidence_intervals, significant_days, future_dates
     
@@ -1061,20 +1522,106 @@ def main(symbol=None, window_size=10, days_ahead=5, threshold=2.0,
         return None
 
 
-def record_failed_prediction(symbol, reason):
+def identify_significant_movements(predictions, threshold_pct=2.0):
     """
-    Record a failed prediction attempt in failed_companies.txt
+    Identify days with significant price movements in the predictions.
+    
+    Args:
+        predictions (list): List of predicted prices
+        threshold_pct (float): Threshold percentage for significant movement
+        
+    Returns:
+        list: Indices of days with significant movements
+    """
+    if len(predictions) < 2:
+        return []
+    
+    significant_days = []
+    
+    # Calculate daily percentage changes
+    for i in range(1, len(predictions)):
+        prev_price = predictions[i-1]
+        curr_price = predictions[i]
+        
+        # Avoid division by zero
+        if prev_price == 0:
+            continue
+            
+        pct_change = abs((curr_price - prev_price) / prev_price * 100)
+        
+        # If percentage change exceeds threshold, mark as significant
+        if pct_change >= threshold_pct:
+            significant_days.append(i)
+    
+    return significant_days
+
+
+def send_predictions_to_api(symbol, predictions, future_dates, last_close_price=None, df=None):
+    """
+    Send predictions to an API endpoint
     
     Args:
         symbol (str): Stock symbol
-        reason (str): Reason for failure
+        predictions (list): List of predicted prices
+        future_dates (list): List of dates for the predictions
+        last_close_price (float): Last known closing price
+        df (pd.DataFrame): DataFrame with historical data
+        
+    Returns:
+        bool: True if successful, False otherwise
     """
     try:
-        with open('failed_companies.txt', 'a') as f:
-            f.write(f"{symbol}\n")
-        print(f"Recorded {symbol} in failed_companies.txt - Reason: {reason}")
+        # API endpoint URL - replace with actual API endpoint
+        api_url = "https://stocks.wajipk.com/api/predictions"
+        
+        # Format dates to strings
+        date_strings = [format_date_safely(date) for date in future_dates]
+        
+        # Create payload
+        payload = {
+            "symbol": symbol,
+            "predictions": [
+                {"date": date, "price": float(price)} 
+                for date, price in zip(date_strings, predictions)
+            ],
+            "last_close_price": float(last_close_price) if last_close_price is not None else None,
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # Add metadata if available
+        if df is not None:
+            try:
+                # Get the last row of data for metadata
+                last_row = df.iloc[-1]
+                metadata = {
+                    "last_date": format_date_safely(last_row.get('date', None)),
+                    "last_volume": float(last_row.get('volume', 0)),
+                    "last_high": float(last_row.get('high', last_close_price)),
+                    "last_low": float(last_row.get('low', last_close_price))
+                }
+                payload["metadata"] = metadata
+            except Exception as e:
+                print(f"Warning: Error adding metadata to API payload: {e}")
+        
+        # Print payload for debugging
+        print(f"Sending predictions to API for {symbol}...")
+        
+        # Uncomment to actually send to API
+        response = requests.post(api_url, json=payload)
+        response.raise_for_status()
+        print(f"Successfully sent predictions to API. Response: {response.status_code}")
+        return True
+        
+        # For now, just print that we would send this data
+        print("API integration is disabled. Would have sent the following data:")
+        print(f"  Symbol: {symbol}")
+        print(f"  Dates: {date_strings}")
+        print(f"  Predictions: {[round(float(p), 2) for p in predictions]}")
+        return True
+        
     except Exception as e:
-        print(f"Error recording failed prediction: {e}")
+        print(f"Error sending predictions to API: {e}")
+        return False
 
 
 if __name__ == "__main__":

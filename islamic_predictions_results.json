@@ -1,6 +1,6 @@
 {
-    "timestamp": "2025-03-05 15:57:39",
-    "total_processed": 138,
+    "timestamp": "2025-03-16 14:37:48",
+    "total_processed": 139,
     "successful": [
         "AGP",
         "ABOT",
@@ -45,7 +45,6 @@
         "FTMM",
         "FLYNG",
         "FCEPL",
-        "GAMON",
         "GAL",
         "GHNI",
         "GTYR",
@@ -112,6 +111,7 @@
         "TPLP",
         "TPLRF1",
         "TPLT",
+        "TCORP",
         "TGL",
         "TELE",
         "THCCL",
@@ -138,8 +138,10 @@
         "OGDC",
         "YOUW",
         "ENGROH",
-        "ZAL",
         "WAFI"
     ],
-    "failed": []
+    "failed": [
+        "ZAL",
+        "BFAGRO"
+    ]
 }

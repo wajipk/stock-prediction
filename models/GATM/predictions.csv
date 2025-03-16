@@ -1,6 +1,2 @@
 date,predicted_price,actual_price,accuracy,threshold_met,model_version,timestamp,notes
-2025-03-05,35.01,,,,default,2025-03-05 13:25:03,
-2025-03-06,35.01,,,,default,2025-03-05 13:25:03,
-2025-03-07,35.01,,,,default,2025-03-05 13:25:03,
-2025-03-10,35.01,,,,default,2025-03-05 13:25:03,
-2025-03-11,35.01,,,,default,2025-03-05 13:25:03,
+2025-03-16,21.561253,,,,reinforced_lstm,2025-03-16 14:30:10,

@@ -1,9 +1,0 @@
-{
-    "best_model_type": "xgboost",
-    "model_name": "XGBoost",
-    "priority_metric": "mape",
-    "metric_value": 8.063084202613988,
-    "model_path": "models\\FCCL\\xgboost_model.pkl",
-    "is_dl_model": false,
-    "selection_date": "2025-03-15 18:24:44"
-}

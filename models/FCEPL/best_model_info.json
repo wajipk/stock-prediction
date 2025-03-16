@@ -1,9 +1,0 @@
-{
-    "best_model_type": "random_forest",
-    "model_name": "Random Forest",
-    "priority_metric": "mape",
-    "metric_value": 6.591870270888371,
-    "model_path": "models\\FCEPL\\random_forest_model.pkl",
-    "is_dl_model": false,
-    "selection_date": "2025-03-15 18:50:04"
-}

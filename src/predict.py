@@ -1577,9 +1577,11 @@ def send_predictions_to_api(symbol, predictions, future_dates, last_close_price=
         # Format dates to strings
         date_strings = [format_date_safely(date) for date in future_dates]
         
-        # Create payload
+        # Create payload - include 'date' field at the top level (required by API)
+        current_date = datetime.now().strftime('%Y-%m-%d')
         payload = {
             "symbol": symbol,
+            "date": current_date,  # Add date field at the top level (today's date)
             "predictions": [
                 {"date": date, "price": float(price)} 
                 for date, price in zip(date_strings, predictions)
@@ -1605,22 +1607,30 @@ def send_predictions_to_api(symbol, predictions, future_dates, last_close_price=
         
         # Print payload for debugging
         print(f"Sending predictions to API for {symbol}...")
+        print(f"Debug - Full payload: {payload}")
         
-        # Uncomment to actually send to API
+        # Send to API
         response = requests.post(api_url, json=payload)
-        response.raise_for_status()
+        
+        if response.status_code >= 400:
+            print(f"Error: API returned status code {response.status_code}")
+            try:
+                error_details = response.json()
+                print(f"API error details: {error_details}")
+            except Exception:
+                print(f"Raw API response: {response.text}")
+            return False
+            
         print(f"Successfully sent predictions to API. Response: {response.status_code}")
         return True
         
-        # For now, just print that we would send this data
-        print("API integration is disabled. Would have sent the following data:")
-        print(f"  Symbol: {symbol}")
-        print(f"  Dates: {date_strings}")
-        print(f"  Predictions: {[round(float(p), 2) for p in predictions]}")
-        return True
-        
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         print(f"Error sending predictions to API: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error in send_predictions_to_api: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 

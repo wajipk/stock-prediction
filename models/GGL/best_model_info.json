@@ -1,9 +1,0 @@
-{
-    "best_model_type": "cnn_lstm",
-    "model_name": "CNN-LSTM Hybrid",
-    "priority_metric": "mape",
-    "metric_value": 8.453495429412987,
-    "model_path": "models\\GGL\\cnn_lstm_model.keras",
-    "is_dl_model": true,
-    "selection_date": "2025-03-15 19:06:46"
-}

@@ -1,9 +1,0 @@
-{
-    "best_model_type": "xgboost",
-    "model_name": "XGBoost",
-    "priority_metric": "mape",
-    "metric_value": 6.937404862586385,
-    "model_path": "models\\FLYNG\\xgboost_model.pkl",
-    "is_dl_model": false,
-    "selection_date": "2025-03-15 18:47:19"
-}

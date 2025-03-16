@@ -1,9 +1,0 @@
-{
-    "best_model_type": "lightgbm",
-    "model_name": "LightGBM",
-    "priority_metric": "mape",
-    "metric_value": 12.146202879062235,
-    "model_path": "models\\DOL\\lightgbm_model.pkl",
-    "is_dl_model": false,
-    "selection_date": "2025-03-15 18:02:29"
-}

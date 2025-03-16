@@ -1,9 +1,0 @@
-{
-    "best_model_type": "elastic_net",
-    "model_name": "Elastic Net Regression",
-    "priority_metric": "mape",
-    "metric_value": 6.324410433468406,
-    "model_path": "models\\APL\\elastic_net_model.pkl",
-    "is_dl_model": false,
-    "selection_date": "2025-03-15 21:47:42"
-}

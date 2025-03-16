@@ -1,9 +1,0 @@
-{
-    "best_model_type": "bilstm",
-    "model_name": "Bidirectional LSTM",
-    "priority_metric": "mape",
-    "metric_value": 8.977344991076748,
-    "model_path": "models\\FPJM\\bilstm_model.keras",
-    "is_dl_model": true,
-    "selection_date": "2025-03-15 18:41:45"
-}

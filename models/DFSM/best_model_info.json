@@ -1,9 +1,0 @@
-{
-    "best_model_type": "gru",
-    "model_name": "GRU Network",
-    "priority_metric": "mape",
-    "metric_value": 4.727932067762618,
-    "model_path": "models\\DFSM\\gru_model.keras",
-    "is_dl_model": true,
-    "selection_date": "2025-03-15 18:07:46"
-}
